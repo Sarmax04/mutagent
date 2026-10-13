@@ -17,4 +17,5 @@ RUN useradd --create-home runner
 USER runner
 
 EXPOSE 8000
-CMD ["mutagent", "serve", "--host", "0.0.0.0", "--port", "8000"]
+# Hosts such as Render inject $PORT; fall back to 8000.
+CMD ["sh", "-c", "exec mutagent serve --host 0.0.0.0 --port ${PORT:-8000}"]
