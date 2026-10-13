@@ -81,6 +81,12 @@ Baseline mutation score of each project's *own* tests, before the agent does any
 | humanize `lists.py` | 12 | 91.7% | ~4 s |
 | cachetools `keys.py` | 4 | 100% | ~2 s |
 
+An unmodified copy of cachetools (MIT) is vendored in `examples/cachetools_demo/` so the demo runs out of the box; see its `VENDORED.md` for the source commit and license:
+
+```bash
+mutagent score --project examples/cachetools_demo --target src/cachetools/func.py --tests tests/test_func.py
+```
+
 The generated tests are written to `tests/test_mutagent_generated.py` inside the target project, and a JSON report (score per round, tokens used) to `mutagent_report.json`.
 
 ## Results
