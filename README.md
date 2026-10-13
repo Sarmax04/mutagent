@@ -6,6 +6,8 @@ Built for the **Nebius x NVIDIA Global AI Hackathon** (track: *Coding and Agenti
 
 License: MIT (see `LICENSE`).
 
+**Live demo:** https://mutagent.onrender.com (free hosting: after 15 idle minutes the first visit takes about a minute to wake up).
+
 ## The problem
 
 LLM-generated tests often pass without testing anything. Coverage and "number of tests" are easy to game. Mutation testing asks the real question: if I plant a small bug in the code, does a test fail?
@@ -40,7 +42,7 @@ LLM-generated tests often pass without testing anything. Coverage and "number of
 | NVIDIA Nemotron (STRONG tier) | TODO: model ID. Writes tests targeting surviving mutants. |
 | NVIDIA Nemotron (FAST tier) | TODO: model ID. Optional triage of likely-equivalent mutants. |
 | Nebius Token Factory | All inference calls (`src/mutagent/llm.py`). |
-| Nebius Serverless (Endpoints / Jobs) | TODO: describe how the demo is hosted, or delete this row. |
+| Web demo hosting | The demo page runs on Render's free tier (Docker). Only the model calls go to Nebius, which the hackathon FAQ allows. |
 
 ## Quick start
 
@@ -103,7 +105,7 @@ The page shows every planted bug as a circle (hollow = slipped through, filled =
 - **Presets only:** visitors pick one of the fixed libraries in `src/mutagent/presets.py`. They never upload code or write prompts.
 - **Limits (see `.env.example`):** one live run at a time, a token budget per run, a cap on live runs per day.
 
-Container image (an untested draft, since it could not be built where it was written): `docker build -t mutagent .`, then `docker run -p 8000:8000 --env-file .env mutagent`. It runs as an unprivileged user with `MUTAGENT_LIMITS=1`.
+Container image (deployed on Render; the Dockerfile listens on `$PORT`, default 8000): `docker build -t mutagent .`, then `docker run -p 8000:8000 --env-file .env mutagent`. It runs as an unprivileged user with `MUTAGENT_LIMITS=1`.
 
 ## Results
 
