@@ -55,6 +55,7 @@ class RoundResult:
     accepted: bool
     note: str
     tokens_used: int
+    survivors: list[int] = field(default_factory=list)  # ids of mutants still alive
 
 
 @dataclass
@@ -65,6 +66,8 @@ class LoopReport:
     final_score: float = 0.0
     tokens_used: int = 0
     generated_path: str | None = None
+    generated_code: str = ""
+    mutants: list[dict] = field(default_factory=list)  # {"id", "line", "kind"}
     rounds: list[RoundResult] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -252,13 +255,21 @@ def run_loop(
     write_back: bool = True,
     log: Callable[[str], None] = print,
     tests: Sequence[str] = (),
+    on_round: Callable[[RoundResult], None] | None = None,
+    code_filter: Callable[[str], list[str]] | None = None,
 ) -> LoopReport:
+    """Run the agent loop.
+
+    ``on_round`` is called after the baseline and after every round (for live UIs).
+    ``code_filter`` receives each candidate test file and returns a list of problems;
+    any problem rejects the candidate before it is executed (see ``safety.py``).
+    """
     project = Path(project).resolve()
     work = copy_project(project)
     try:
         return _run(
             project, work, target, llm, max_rounds, patience, test_timeout,
-            triage, generated_rel, write_back, log, tests,
+            triage, generated_rel, write_back, log, tests, on_round, code_filter,
         )
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
@@ -277,6 +288,8 @@ def _run(
     write_back: bool,
     log: Callable[[str], None],
     tests: Sequence[str],
+    on_round: Callable[[RoundResult], None] | None,
+    code_filter: Callable[[str], list[str]] | None,
 ) -> LoopReport:
     source = (work / target).read_text()
     mutants = generate_mutants(source)
@@ -308,9 +321,22 @@ def _run(
     best = mutation_score(statuses)
     killed, survived = counts(statuses)
     report = LoopReport(
-        target=target, mutant_count=len(mutants), initial_score=best, final_score=best
+        target=target,
+        mutant_count=len(mutants),
+        initial_score=best,
+        final_score=best,
+        mutants=[{"id": m.id, "line": m.lineno, "kind": m.kind} for m in mutants],
     )
-    report.rounds.append(RoundResult(0, best, killed, survived, True, "baseline", 0))
+
+    def alive() -> list[int]:
+        return [m.id for m in mutants if statuses[m.id] == "survived"]
+
+    def add(result: RoundResult) -> None:
+        report.rounds.append(result)
+        if on_round is not None:
+            on_round(result)
+
+    add(RoundResult(0, best, killed, survived, True, "baseline", 0, alive()))
     log(f"round 0: score {best:.1f}% ({killed} killed / {survived} survived) baseline")
 
     start_tokens = spent()
@@ -336,16 +362,24 @@ def _run(
             )
             reply = llm.complete(Tier.STRONG, messages)
         except BudgetExceeded as exc:
-            report.rounds.append(
-                RoundResult(rnd, best, killed, survived, False, f"stopped: {exc}", spent() - before)
+            add(
+                RoundResult(
+                    rnd, best, killed, survived, False, f"stopped: {exc}", spent() - before, alive()
+                )
             )
             log(f"round {rnd}: stopped, {exc}")
             break
 
         used = spent() - before
         code = extract_code(reply)
+        problems = code_filter(code) if (code is not None and code_filter) else []
         if code is None:
             note, accepted = "rejected: no test code in reply", False
+            stale += 1
+        elif problems:
+            shown_problems = "; ".join(problems[:3])
+            last_error = "Your test file was rejected before it ran: " + shown_problems
+            note, accepted = f"rejected: not allowed ({shown_problems})", False
             stale += 1
         else:
             generated.write_text(code)
@@ -371,13 +405,14 @@ def _run(
                     note, accepted = "rejected: no score improvement", False
                     stale += 1
 
-        report.rounds.append(RoundResult(rnd, best, killed, survived, accepted, note, used))
+        add(RoundResult(rnd, best, killed, survived, accepted, note, used, alive()))
         log(f"round {rnd}: score {best:.1f}% ({killed} killed / {survived} survived) {note}")
         if stale >= patience:
             log(f"stopping: no progress for {patience} rounds")
             break
 
     report.final_score = best
+    report.generated_code = current
     report.tokens_used = spent() - start_tokens
     if write_back and current:
         out = project / generated_rel

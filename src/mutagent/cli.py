@@ -49,11 +49,20 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--report", default="mutagent_report.json")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
+
+    p = sub.add_parser("serve", help="start the web demo (needs: pip install -e \".[web]\")")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8000)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.cmd == "serve":
+        from .web import serve
+
+        serve(args.host, args.port)
+        return 0
     project = Path(args.project)
     if not (project / args.target).is_file():
         print(f"error: {project / args.target} not found", file=sys.stderr)
@@ -97,7 +106,10 @@ def main(argv: list[str] | None = None) -> int:
         print("error: the project's own tests fail before any mutation:\n" + str(exc), file=sys.stderr)
         return 1
 
-    Path(args.report).write_text(json.dumps(report.to_dict(), indent=2))
+    data = report.to_dict()
+    data["models"] = {"fast": settings.model_fast, "strong": settings.model_strong}
+    Path(args.report).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.report).write_text(json.dumps(data, indent=2))
     print(
         f"\nscore {report.initial_score:.1f}% -> {report.final_score:.1f}% "
         f"using {report.tokens_used} tokens; report: {args.report}"

@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MutAgent</title>
+<meta name="description" content="An agent writes tests, then proves they work by counting how many planted bugs they catch.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='%230B7A75'/%3E%3C/svg%3E">
+<style>
+:root {
+  --paper: #EDF0F2;
+  --plate: #FFFFFF;
+  --ink: #16212C;
+  --muted: #5B6B79;
+  --line: #CBD3DA;
+  --caught: #0B7A75;
+  --on-caught: #FFFFFF;
+  --alive: #B7791F;
+  --focus: #1D5FD1;
+  --display: "Bahnschrift", "DIN Alternate", "Avenir Next Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  --text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #10171D;
+    --plate: #18222B;
+    --ink: #E7EDF2;
+    --muted: #9AAAB7;
+    --line: #2C3944;
+    --caught: #3CC1B6;
+    --on-caught: #08201E;
+    --alive: #E3A74B;
+    --focus: #7FB0FF;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--paper); }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.55 var(--text);
+  -webkit-text-size-adjust: 100%;
+}
+.page { max-width: 1080px; margin: 0 auto; padding: 28px 16px 56px; }
+h1 {
+  margin: 0;
+  font: 700 clamp(30px, 5vw, 40px)/1 var(--display);
+  letter-spacing: 0.01em;
+}
+.lede { margin: 10px 0 0; max-width: 60ch; color: var(--muted); }
+button, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* controls */
+.controls { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.seg { display: flex; flex-wrap: wrap; }
+.opt { position: relative; margin-right: -1px; }
+.opt input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.opt span {
+  display: block; padding: 8px 15px;
+  border: 1px solid var(--line); background: var(--plate);
+}
+.opt:first-child span { border-radius: 8px 0 0 8px; }
+.opt:last-child span { border-radius: 0 8px 8px 0; margin-right: 1px; }
+.opt:only-child span { border-radius: 8px; }
+.opt input:checked + span { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.opt input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
+.opt input:disabled { cursor: not-allowed; }
+.opt input:disabled + span { opacity: 0.5; }
+.go {
+  padding: 9px 20px; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600;
+  background: var(--caught); color: var(--on-caught);
+}
+.go:disabled { opacity: 0.55; cursor: not-allowed; }
+.rounds-pick { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+.rounds-pick select {
+  padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--plate); color: var(--ink);
+}
+.blurb { margin: 12px 0 0; max-width: 62ch; color: var(--muted); }
+.hint { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+#status { margin: 14px 0 0; min-height: 1.55em; }
+#status.error { color: var(--alive); font-weight: 600; }
+
+/* stage: the plate and the readout */
+.stage {
+  margin-top: 22px; display: grid; gap: 28px 40px; align-items: start;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  grid-template-areas: "plate readout";
+}
+.plate-wrap { grid-area: plate; min-width: 0; }
+.readout { grid-area: readout; min-width: 0; }
+.plate {
+  position: relative; background: var(--plate); border: 1px solid var(--line);
+  border-radius: 6px 16px 16px 16px; padding: 26px 22px 22px;
+}
+.plate::before { /* the notched corner of a lab well plate */
+  content: ""; position: absolute; top: -1px; left: -1px; width: 22px; height: 22px;
+  background: linear-gradient(135deg, var(--paper) 0 48%, var(--line) 48% 54%, transparent 54%);
+}
+.wells {
+  display: grid; gap: 10px; justify-content: start;
+  grid-template-columns: repeat(var(--cols, 8), minmax(0, 38px));
+}
+.well {
+  aspect-ratio: 1; border-radius: 50%;
+  border: 2px solid var(--alive); background: transparent;
+}
+.well.caught { background: var(--caught); border-color: var(--caught); }
+.well.fresh { animation: settle 520ms ease-out; }
+@keyframes settle { from { transform: scale(0.45); } 60% { transform: scale(1.12); } to { transform: scale(1); } }
+.placeholder { margin: 0; color: var(--muted); padding: 18px 0; }
+.legend { margin: 14px 0 0; color: var(--muted); font-size: 14px; max-width: 56ch; }
+
+.score { margin: 0; font: 700 clamp(72px, 13vw, 128px)/0.95 var(--display); font-variant-numeric: tabular-nums; }
+.score .unit { font-size: 0.45em; margin-left: 4px; }
+.score-label { margin: 8px 0 0; color: var(--muted); }
+.facts { margin: 22px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 22px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* rounds */
+h2 { margin: 44px 0 12px; font: 700 22px/1.2 var(--display); letter-spacing: 0.01em; }
+.round-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.round { display: grid; grid-template-columns: 96px minmax(0, 1fr) 150px; gap: 6px 18px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.round .name { font-weight: 600; }
+.round .what { color: var(--muted); }
+.round.kept .what { color: var(--ink); }
+.round .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.round .bar i { display: block; height: 100%; background: var(--caught); }
+.round .figs { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.round .figs small { display: block; color: var(--muted); font-size: 13px; }
+.empty { color: var(--muted); }
+
+/* code and log */
+.code-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 44px 0 12px; }
+.code-head h2 { margin: 0; }
+.copy { padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--plate); cursor: pointer; }
+.copy:disabled { opacity: 0.5; cursor: not-allowed; }
+pre {
+  margin: 0; padding: 16px 18px; overflow: auto; max-height: 460px;
+  background: var(--plate); border: 1px solid var(--line); border-radius: 10px;
+  font: 13.5px/1.55 var(--mono); tab-size: 4;
+}
+details { margin-top: 22px; }
+summary { cursor: pointer; color: var(--muted); }
+details pre { margin-top: 10px; max-height: 260px; }
+footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch; }
+
+@media (max-width: 760px) {
+  .stage { grid-template-columns: minmax(0, 1fr); grid-template-areas: "readout" "plate"; }
+  .round { grid-template-columns: 1fr auto; }
+  .round .bar { grid-column: 1 / -1; order: 3; }
+  .round .what { grid-column: 1 / -1; order: 2; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .well.fresh { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>MutAgent</h1>
+    <p class="lede">An agent writes tests, then proves they work. We plant small bugs in the code and count how many the tests catch.</p>
+  </header>
+
+  <section class="controls" aria-label="Choose a run">
+    <fieldset>
+      <legend class="sr">Library</legend>
+      <div class="seg" id="presets"></div>
+    </fieldset>
+    <fieldset>
+      <legend class="sr">Mode</legend>
+      <div class="seg">
+        <label class="opt"><input type="radio" name="mode" value="replay" checked><span>Recorded run</span></label>
+        <label class="opt"><input type="radio" name="mode" value="live" id="mode-live"><span>Live run</span></label>
+      </div>
+    </fieldset>
+    <label class="rounds-pick" id="rounds-pick" hidden>Rounds
+      <select id="rounds"></select>
+    </label>
+    <button class="go" id="go" type="button">Play recording</button>
+  </section>
+  <p class="blurb" id="blurb"></p>
+  <p class="hint" id="hint" hidden></p>
+  <p id="status" role="status" aria-live="polite"></p>
+
+  <section class="stage" aria-label="Results">
+    <div class="plate-wrap">
+      <div class="plate">
+        <div class="wells" id="wells" role="img" aria-label="No run loaded yet"></div>
+        <p class="placeholder" id="plate-empty">Pick a library and press the button to see its planted bugs.</p>
+      </div>
+      <p class="legend">Each circle is one planted bug. A filled circle means a test caught it. A hollow ring means the bug slipped through.</p>
+    </div>
+    <div class="readout">
+      <p class="score" id="score-line"><span id="score">&ndash;</span><span class="unit">%</span></p>
+      <p class="score-label">of planted bugs caught by the tests</p>
+      <dl class="facts">
+        <dt>Started at</dt><dd id="f-start">&ndash;</dd>
+        <dt>Caught</dt><dd id="f-caught">&ndash;</dd>
+        <dt>Model tokens</dt><dd id="f-tokens">&ndash;</dd>
+      </dl>
+    </div>
+  </section>
+
+  <h2>Rounds</h2>
+  <ol class="round-list" id="rounds-list"><li class="empty" style="padding:12px 0">Nothing has run yet.</li></ol>
+
+  <div class="code-head">
+    <h2>Tests the agent wrote</h2>
+    <button class="copy" id="copy" type="button" disabled>Copy tests</button>
+  </div>
+  <pre id="code"><code>The tests appear here once a run finishes.</code></pre>
+
+  <details>
+    <summary>Run log</summary>
+    <pre id="log"><code></code></pre>
+  </details>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+"use strict";
+const $ = (selector) => document.querySelector(selector);
+const el = (tag, cls, text) => {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const KIND = {
+  compare: "comparison flipped",
+  arith: "operator swapped",
+  boolop: "and/or swapped",
+  not: "negation dropped",
+  const: "constant changed",
+};
+
+const app = { presets: [], status: null, preset: null, mode: "replay", token: 0, busy: false, total: 0, wells: [], recording: null, code: "" };
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  let body = null;
+  try { body = await response.json(); } catch (_) { /* not JSON */ }
+  if (!response.ok) {
+    const detail = body && typeof body.detail === "string" ? body.detail : "Something went wrong. Try again.";
+    const error = new Error(detail);
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+function say(text, isError) {
+  const node = $("#status");
+  node.textContent = text || "";
+  node.classList.toggle("error", Boolean(isError));
+}
+
+/* ---------- plate ---------- */
+function wellTitle(id, meta) {
+  const info = meta && meta[id];
+  if (!info) return "Planted bug " + id;
+  return "Planted bug " + id + ", line " + info.line + ": " + (KIND[info.kind] || info.kind);
+}
+
+function buildPlate(total, meta) {
+  const plate = $("#wells");
+  plate.replaceChildren();
+  const columns = Math.max(4, Math.min(16, Math.ceil(Math.sqrt(total * 1.7))));
+  plate.style.setProperty("--cols", columns);
+  app.wells = [];
+  for (let id = 0; id < total; id++) {
+    const well = el("span", "well");
+    well.title = wellTitle(id, meta);
+    plate.appendChild(well);
+    app.wells.push(well);
+  }
+  app.total = total;
+  $("#plate-empty").hidden = total > 0;
+}
+
+function applyMeta(mutants) {
+  const meta = {};
+  (mutants || []).forEach((m) => { meta[m.id] = m; });
+  app.wells.forEach((well, id) => { well.title = wellTitle(id, meta); });
+}
+
+function survivorIds(round) {
+  if (Array.isArray(round.survivors)) return round.survivors;
+  // Older recordings only have counts: assume the last ones are still alive.
+  return Array.from({ length: round.survived }, (_, k) => app.total - round.survived + k);
+}
+
+function paintRound(rounds, index) {
+  const round = rounds[index];
+  const alive = new Set(survivorIds(round));
+  const before = index > 0 ? new Set(survivorIds(rounds[index - 1])) : null;
+  app.wells.forEach((well, id) => {
+    const caught = !alive.has(id);
+    const fresh = caught && before && before.has(id);
+    well.className = "well" + (caught ? " caught" : "") + (fresh ? " fresh" : "");
+  });
+  $("#wells").setAttribute("aria-label", app.total + " planted bugs, " + round.killed + " caught");
+  $("#score").textContent = round.score.toFixed(1);
+  $("#f-start").textContent = rounds[0].score.toFixed(1) + "%";
+  $("#f-caught").textContent = round.killed + " of " + app.total;
+  const tokens = rounds.slice(0, index + 1).reduce((sum, r) => sum + (r.tokens_used || 0), 0);
+  $("#f-tokens").textContent = tokens > 0 ? tokens.toLocaleString() : "none yet";
+}
+
+/* ---------- rounds list, code, log ---------- */
+function plainNote(round) {
+  const note = round.note || "";
+  if (note === "baseline") return "The library's own tests";
+  if (note.startsWith("accepted")) return "Kept the new tests. The score rose.";
+  if (note.includes("fail on the original")) return "Dropped the new tests. They failed on the original code.";
+  if (note.includes("no score improvement")) return "Dropped the new tests. They caught nothing new.";
+  if (note.includes("no test code")) return "Dropped the reply. It had no test code.";
+  if (note.startsWith("rejected: not allowed")) return "Dropped the new tests. They used something that isn't allowed.";
+  if (note.startsWith("stopped")) return "Stopped. The token budget is used up.";
+  return note;
+}
+
+function renderRounds(rounds, upto) {
+  const list = $("#rounds-list");
+  list.replaceChildren();
+  rounds.slice(0, upto + 1).forEach((round) => {
+    const row = el("li", "round" + (round.accepted && round.round > 0 ? " kept" : ""));
+    row.appendChild(el("span", "name", round.round === 0 ? "Baseline" : "Round " + round.round));
+    row.appendChild(el("span", "what", plainNote(round)));
+    const figs = el("span", "figs", round.score.toFixed(1) + "%");
+    if (round.round > 0 && round.tokens_used) figs.appendChild(el("small", "", round.tokens_used.toLocaleString() + " tokens"));
+    row.appendChild(figs);
+    const bar = el("span", "bar");
+    const fill = el("i");
+    fill.style.width = Math.max(0, Math.min(100, round.score)) + "%";
+    bar.appendChild(fill);
+    row.appendChild(bar);
+    list.appendChild(row);
+  });
+}
+
+function showCode(report) {
+  const code = (report && report.generated_code) || "";
+  app.code = code;
+  $("#code").firstElementChild.textContent = code || "No new tests were kept in this run.";
+  $("#copy").disabled = !code;
+}
+
+function showLog(lines) {
+  $("#log").firstElementChild.textContent = (lines || []).join("\n");
+}
+
+function showFooter(models) {
+  const footer = $("#footer");
+  footer.textContent = models && models.strong
+    ? "Tests written by " + models.strong + " through Nebius Token Factory."
+    : "";
+}
+
+function resetResults() {
+  buildPlate(0, {});
+  $("#score").textContent = "–";
+  $("#f-start").textContent = "–";
+  $("#f-caught").textContent = "–";
+  $("#f-tokens").textContent = "–";
+  $("#wells").setAttribute("aria-label", "No run loaded yet");
+  $("#rounds-list").replaceChildren(el("li", "empty", "Nothing has run yet."));
+  $("#rounds-list").firstElementChild.style.padding = "12px 0";
+  showCode(null);
+  $("#code").firstElementChild.textContent = "The tests appear here once a run finishes.";
+  showLog([]);
+}
+
+/* ---------- modes ---------- */
+function setBusy(busy) {
+  app.busy = busy;
+  $("#go").disabled = busy || !canRun();
+  document.querySelectorAll("input[name=mode], input[name=preset]").forEach((input) => {
+    input.disabled = busy || (input.id === "mode-live" && !liveAllowed());
+  });
+}
+
+function liveAllowed() {
+  const s = app.status;
+  return Boolean(s && s.live && s.runs_left_today > 0);
+}
+
+function canRun() {
+  if (app.mode === "live") return liveAllowed();
+  return Boolean(app.recording);
+}
+
+function updateHint() {
+  const hint = $("#hint");
+  const s = app.status;
+  let text = "";
+  if (!s || !s.live) text = "Live runs are switched off on this server, so only recorded runs are available.";
+  else if (s.runs_left_today <= 0) text = "Today's live runs are used up. Recorded runs still work.";
+  else if (app.mode === "live") text = "A live run calls the model, so it takes a minute or two. Each run is capped at " + s.run_token_budget.toLocaleString() + " tokens.";
+  hint.textContent = text;
+  hint.hidden = !text;
+}
+
+async function loadPreview() {
+  const token = ++app.token;
+  app.recording = null;
+  resetResults();
+  say("");
+  $("#blurb").textContent = app.preset.blurb;
+  $("#rounds-pick").hidden = app.mode !== "live";
+  $("#go").textContent = app.mode === "live" ? "Start live run" : "Play recording";
+  updateHint();
+  if (app.mode === "live") {
+    $("#plate-empty").textContent = "Start a run to see the bugs planted in " + app.preset.target + ".";
+    showFooter(app.status && app.status.models);
+    setBusy(false);
+    return;
+  }
+  $("#plate-empty").textContent = "Loading the recording...";
+  try {
+    const data = await api("/api/replay/" + encodeURIComponent(app.preset.id));
+    if (token !== app.token) return;
+    const report = data.report;
+    app.recording = report;
+    buildPlate(report.rounds[0].killed + report.rounds[0].survived, {});
+    applyMeta(report.mutants);
+    paintRound(report.rounds, 0);
+    renderRounds(report.rounds, 0);
+    showFooter(report.models);
+    say("Recording loaded. Press the button to watch the agent work.");
+  } catch (error) {
+    if (token !== app.token) return;
+    $("#plate-empty").textContent = "There is no recording for this library yet.";
+    say(error.status === 404
+      ? "No recording yet. Record one with: mutagent run --project examples/<folder> --target " + app.preset.target + " --report replays/" + app.preset.id + ".json"
+      : error.message, error.status !== 404);
+  }
+  setBusy(false);
+}
+
+async function playRecording() {
+  const report = app.recording;
+  if (!report) return;
+  const token = ++app.token;
+  setBusy(true);
+  say("Playing the recording.");
+  showCode(null);
+  $("#code").firstElementChild.textContent = "The tests appear here once the recording finishes.";
+  const delay = reduceMotion ? 250 : 1500;
+  for (let index = 0; index < report.rounds.length; index++) {
+    if (token !== app.token) return;
+    paintRound(report.rounds, index);
+    renderRounds(report.rounds, index);
+    if (index < report.rounds.length - 1) await sleep(delay);
+  }
+  if (token !== app.token) return;
+  showCode(report);
+  showLog(report.rounds.map((r) => (r.round === 0 ? "baseline" : "round " + r.round) + ": " + r.score.toFixed(1) + "% " + plainNote(r)));
+  const first = report.rounds[0].score, last = report.rounds[report.rounds.length - 1].score;
+  say("Done. The score went from " + first.toFixed(1) + "% to " + last.toFixed(1) + "%.");
+  setBusy(false);
+}
+
+async function startLive() {
+  const token = ++app.token;
+  setBusy(true);
+  resetResults();
+  say("Scoring the library's own tests.");
+  try {
+    const started = await api("/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preset: app.preset.id, rounds: Number($("#rounds").value) }),
+    });
+    while (token === app.token) {
+      const run = await api("/api/runs/" + started.id);
+      if (run.rounds.length) {
+        if (app.total === 0) buildPlate(run.rounds[0].killed + run.rounds[0].survived, {});
+        const last = run.rounds.length - 1;
+        paintRound(run.rounds, last);
+        renderRounds(run.rounds, last);
+      }
+      showLog(run.log);
+      if (run.status === "error") { say(run.error || "The run stopped.", true); break; }
+      if (run.status === "done") {
+        if (run.report) { applyMeta(run.report.mutants); showCode(run.report); }
+        const rounds = run.rounds;
+        say("Done. The score went from " + rounds[0].score.toFixed(1) + "% to " + rounds[rounds.length - 1].score.toFixed(1) + "%.");
+        break;
+      }
+      say(run.rounds.length <= 1
+        ? "Asking the model for tests."
+        : "Round " + (run.rounds.length - 1) + " of " + run.rounds_requested + " is done. Waiting for the model.");
+      await sleep(1000);
+    }
+  } catch (error) {
+    if (token === app.token) say(error.message, true);
+  }
+  if (token === app.token) setBusy(false);
+  refreshStatus();
+}
+
+async function refreshStatus() {
+  try {
+    app.status = await api("/api/status");
+  } catch (_) {
+    app.status = { live: false, runs_left_today: 0, max_rounds: 1, models: {} };
+  }
+  const select = $("#rounds");
+  if (!select.options.length) {
+    for (let n = 1; n <= app.status.max_rounds; n++) select.add(new Option(String(n), String(n), false, n === Math.min(2, app.status.max_rounds)));
+  }
+  $("#mode-live").disabled = !liveAllowed();
+  updateHint();
+}
+
+/* ---------- start ---------- */
+async function init() {
+  await refreshStatus();
+  try {
+    app.presets = await api("/api/presets");
+  } catch (error) {
+    say(error.message, true);
+    return;
+  }
+  const holder = $("#presets");
+  app.presets.forEach((preset, index) => {
+    const label = el("label", "opt");
+    const input = el("input");
+    input.type = "radio"; input.name = "preset"; input.value = preset.id; input.checked = index === 0;
+    label.appendChild(input);
+    label.appendChild(el("span", "", preset.title));
+    holder.appendChild(label);
+  });
+  app.preset = app.presets[0];
+
+  holder.addEventListener("change", (event) => {
+    app.preset = app.presets.find((p) => p.id === event.target.value);
+    loadPreview();
+  });
+  document.querySelectorAll("input[name=mode]").forEach((input) => input.addEventListener("change", () => {
+    app.mode = document.querySelector("input[name=mode]:checked").value;
+    loadPreview();
+  }));
+  $("#go").addEventListener("click", () => (app.mode === "live" ? startLive() : playRecording()));
+  $("#copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(app.code);
+      say("Copied the tests.");
+    } catch (_) {
+      say("Copying isn't available here. Select the code and copy it by hand.", true);
+    }
+  });
+  loadPreview();
+}
+init();
+</script>
+</body>
+</html>
