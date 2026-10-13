@@ -148,6 +148,25 @@ def copy_project(project: Path) -> Path:
     return work
 
 
+# With MUTAGENT_LIMITS=1 (POSIX only) pytest starts under CPU, memory and file-size
+# limits. Set before pytest starts instead of via preexec_fn, which is unsafe when the
+# parent process has threads (for example a web server).
+_LIMITED_BOOTSTRAP = (
+    "import resource, runpy, sys\n"
+    "for name, value in (('RLIMIT_CPU', 60), ('RLIMIT_AS', 2 << 30), ('RLIMIT_FSIZE', 10 << 20)):\n"
+    "    resource.setrlimit(getattr(resource, name), (value, value))\n"
+    "sys.argv = ['pytest'] + sys.argv[1:]\n"
+    "runpy.run_module('pytest', run_name='__main__', alter_sys=True)\n"
+)
+
+
+def _pytest_argv(tests: Sequence[str]) -> list[str]:
+    args = ["-x", "-q", "-p", "no:cacheprovider", *tests]
+    if os.name == "posix" and os.environ.get("MUTAGENT_LIMITS") == "1":
+        return [sys.executable, "-c", _LIMITED_BOOTSTRAP, *args]
+    return [sys.executable, "-m", "pytest", *args]
+
+
 def run_tests(
     workdir: Path, timeout: float = 30.0, tests: Sequence[str] = ()
 ) -> TestRun:
@@ -167,7 +186,7 @@ def run_tests(
     }
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *tests],
+            _pytest_argv(tests),
             cwd=workdir,
             env=env,
             capture_output=True,

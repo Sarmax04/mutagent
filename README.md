@@ -89,6 +89,22 @@ mutagent score --project examples/cachetools_demo --target src/cachetools/func.p
 
 The generated tests are written to `tests/test_mutagent_generated.py` inside the target project, and a JSON report (score per round, tokens used) to `mutagent_report.json`.
 
+## Web demo
+
+```bash
+pip install -e ".[web]"
+mutagent serve            # http://127.0.0.1:8000
+```
+
+The page shows every planted bug as a circle (hollow = slipped through, filled = caught by a test), the score after each round, and the tests the agent kept.
+
+- **Recorded run:** plays back a real run from `replays/<preset>.json`. Record one with the commands in `replays/README.md`. Recordings come from real runs only.
+- **Live run:** starts a capped run against the model. It switches on only when the `NEBIUS_*` values from `.env.example` are set; otherwise the page offers recordings only.
+- **Presets only:** visitors pick one of the fixed libraries in `src/mutagent/presets.py`. They never upload code or write prompts.
+- **Limits (see `.env.example`):** one live run at a time, a token budget per run, a cap on live runs per day.
+
+Container image (an untested draft, since it could not be built where it was written): `docker build -t mutagent .`, then `docker run -p 8000:8000 --env-file .env mutagent`. It runs as an unprivileged user with `MUTAGENT_LIMITS=1`.
+
 ## Results
 
 <!-- TODO: fill in from real runs; keep failures in, they make the numbers credible. -->
@@ -99,7 +115,12 @@ The generated tests are written to `tests/test_mutagent_generated.py` inside the
 
 ## Safety
 
-The agent executes model-written test code with pytest. Run it in a container or a Nebius Serverless Job, not on a machine with data you care about. Each test run has a timeout.
+The agent executes model-written test code with pytest, so treat it as untrusted code.
+
+- Each test run has a timeout.
+- In the web demo, every model-written test file is screened first (`src/mutagent/safety.py`) and is rejected before running if it imports modules such as `os`, `subprocess`, `socket` or `io`, or calls `exec`, `open` and similar. This is a denylist and **not a sandbox**; a determined attacker could get around it.
+- `MUTAGENT_LIMITS=1` (Linux) starts each pytest process under CPU, memory and file-size limits.
+- Real isolation has to come from where you run it: a container or a Nebius Serverless Job, as an unprivileged user, without secrets and ideally without network access. Don't run it on a machine with data you care about.
 
 ## Limitations
 
