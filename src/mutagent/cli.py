@@ -26,12 +26,23 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("mutants", help="list the mutants generated for a module (no tests run)")
     common(p)
 
+    def tests_opt(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--tests",
+            nargs="+",
+            default=[],
+            metavar="PATH",
+            help="run only these test files (relative to --project); default: everything pytest finds",
+        )
+
     p = sub.add_parser("score", help="score the project's existing tests (no model calls)")
     common(p)
+    tests_opt(p)
     p.add_argument("--test-timeout", type=float, default=20.0)
 
     p = sub.add_parser("run", help="run the agent loop")
     common(p)
+    tests_opt(p)
     p.add_argument("--rounds", type=int, default=4)
     p.add_argument("--budget", type=int, help="token cap; overrides NEBIUS_TOKEN_BUDGET")
     p.add_argument("--triage", action="store_true", help="use the FAST model to skip likely-equivalent mutants")
@@ -57,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.cmd == "score":
-            mutants, statuses = measure(project, args.target, args.test_timeout)
+            mutants, statuses = measure(project, args.target, args.test_timeout, args.tests)
             killed, survived = counts(statuses)
             print(f"mutation score: {mutation_score(statuses):.1f}% ({killed} killed / {survived} survived)")
             for m in mutants:
@@ -77,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
             test_timeout=args.test_timeout,
             triage=args.triage,
             write_back=not args.no_write_back,
+            tests=args.tests,
         )
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -27,4 +27,6 @@ For each item: what you tried, what happened, what you expected, and a concrete 
 
 | Date | What I did | What went wrong | Suggestion |
 |---|---|---|---|
-|  |  |  |  |
+| 2026-10-13 | Applied to the Nebius AI Builder Program | Expected to claim credits right after verifying my email; instead got a "we are reviewing your application" email promising an update within two business days | State the review step and timeline on the Builders page and the hackathon Resources page |
+| 2026-10-13 | Submitted the hackathon promo-code form | Confirmation page only says the code "will be emailed to you"; no time estimate | Say how long delivery takes, and where to redeem the code afterwards |
+| 2026-10-13 | Looked for the Discord invite | The hackathon Resources page and the Builders page link to two different Discord invites | One canonical link, or say which channel is for hackathon questions |

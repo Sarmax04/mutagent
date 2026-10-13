@@ -19,7 +19,7 @@ import re
 import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 from .llm import BudgetExceeded, ChatModel, Tier, strip_reasoning
 from .mutation import (
@@ -190,29 +190,51 @@ def triage_equivalent(llm: ChatModel, survivors: list[Mutant]) -> set[int]:
         return set()
 
 
-def read_existing_tests(work: Path, generated_rel: str, limit: int = 6000) -> str:
+def selection(work: Path, tests: Sequence[str], generated_rel: str) -> list[str]:
+    """Pytest arguments: the chosen test files plus the generated file once it exists.
+
+    Empty ``tests`` means "run everything pytest discovers".
+    """
+    if not tests:
+        return []
+    chosen = list(tests)
+    if (work / generated_rel).exists():
+        chosen.append(generated_rel)
+    return chosen
+
+
+def read_existing_tests(
+    work: Path, generated_rel: str, limit: int = 6000, tests: Sequence[str] = ()
+) -> str:
+    if tests:
+        paths = [work / t for t in tests]
+    else:
+        tests_dir = work / "tests"
+        paths = sorted(tests_dir.glob("test_*.py")) if tests_dir.is_dir() else []
     chunks: list[str] = []
-    tests_dir = work / "tests"
-    if tests_dir.is_dir():
-        for path in sorted(tests_dir.glob("test_*.py")):
-            if path.relative_to(work).as_posix() == generated_rel:
-                continue
-            chunks.append(f"# {path.name}\n{path.read_text()}")
+    for path in paths:
+        if not path.is_file() or path.relative_to(work).as_posix() == generated_rel:
+            continue
+        chunks.append(f"# {path.name}\n{path.read_text()}")
     return "\n\n".join(chunks)[:limit]
 
 
 def measure(
-    project: Path, target: str, test_timeout: float = 20.0
+    project: Path,
+    target: str,
+    test_timeout: float = 20.0,
+    tests: Sequence[str] = (),
 ) -> tuple[list[Mutant], dict[int, str]]:
     """Score the project's current tests without calling any model."""
     work = copy_project(Path(project).resolve())
     try:
         source = (work / target).read_text()
         mutants = generate_mutants(source)
-        base = run_tests(work, test_timeout)
+        chosen = selection(work, tests, GENERATED_REL)
+        base = run_tests(work, test_timeout, chosen)
         if base.returncode not in (0, 5):  # 5 = no tests yet, which is fine
             raise BaselineFailing(base.output)
-        return mutants, evaluate(work, target, mutants, source, test_timeout)
+        return mutants, evaluate(work, target, mutants, source, test_timeout, chosen)
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
 
@@ -229,13 +251,14 @@ def run_loop(
     generated_rel: str = GENERATED_REL,
     write_back: bool = True,
     log: Callable[[str], None] = print,
+    tests: Sequence[str] = (),
 ) -> LoopReport:
     project = Path(project).resolve()
     work = copy_project(project)
     try:
         return _run(
             project, work, target, llm, max_rounds, patience, test_timeout,
-            triage, generated_rel, write_back, log,
+            triage, generated_rel, write_back, log, tests,
         )
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
@@ -253,13 +276,14 @@ def _run(
     generated_rel: str,
     write_back: bool,
     log: Callable[[str], None],
+    tests: Sequence[str],
 ) -> LoopReport:
     source = (work / target).read_text()
     mutants = generate_mutants(source)
     if not mutants:
         raise ValueError(f"{target} has no mutation sites; nothing to test against")
 
-    base = run_tests(work, test_timeout)
+    base = run_tests(work, test_timeout, selection(work, tests, generated_rel))
     if base.returncode not in (0, 5):
         raise BaselineFailing(base.output)
 
@@ -278,7 +302,9 @@ def _run(
         elif generated.exists():
             generated.unlink()
 
-    statuses = evaluate(work, target, mutants, source, test_timeout)
+    statuses = evaluate(
+        work, target, mutants, source, test_timeout, selection(work, tests, generated_rel)
+    )
     best = mutation_score(statuses)
     killed, survived = counts(statuses)
     report = LoopReport(
@@ -303,7 +329,7 @@ def _run(
             messages = build_messages(
                 module,
                 source,
-                read_existing_tests(work, generated_rel),
+                read_existing_tests(work, generated_rel, tests=tests),
                 current,
                 shown,
                 last_error,
@@ -323,14 +349,17 @@ def _run(
             stale += 1
         else:
             generated.write_text(code)
-            check = run_tests(work, test_timeout)
+            check = run_tests(work, test_timeout, selection(work, tests, generated_rel))
             if not check.passed:
                 restore()
                 last_error = check.output
                 note, accepted = "rejected: tests fail on the original code", False
                 stale += 1
             else:
-                new_statuses = evaluate(work, target, mutants, source, test_timeout)
+                new_statuses = evaluate(
+                    work, target, mutants, source, test_timeout,
+                    selection(work, tests, generated_rel),
+                )
                 new_score = mutation_score(new_statuses)
                 if new_score > best:
                     statuses, best, current = new_statuses, new_score, code

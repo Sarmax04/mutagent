@@ -164,6 +164,32 @@ def test_baseline_failure_is_reported(tmp_path):
         run_loop(project, "m.py", FakeLLM([]), log=quiet)
 
 
+def test_src_layout_scores_the_mutated_copy(tmp_path):
+    project = tmp_path / "p"
+    (project / "src" / "pkg").mkdir(parents=True)
+    (project / "tests").mkdir()
+    (project / "src" / "pkg" / "__init__.py").write_text("")
+    (project / "src" / "pkg" / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    (project / "tests" / "test_calc.py").write_text(
+        "from pkg.calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n"
+    )
+    mutants, statuses = measure(project, "src/pkg/calc.py")
+    assert len(mutants) == 1
+    assert mutation_score(statuses) == 100.0  # 0% would mean the original was imported
+
+
+def test_tests_option_selects_files(tmp_path):
+    project = tmp_path / "p"
+    (project / "tests").mkdir(parents=True)
+    (project / "m.py").write_text("def f(a):\n    return a + 1\n")
+    (project / "tests" / "test_good.py").write_text("from m import f\n\ndef test_f():\n    assert f(1) == 2\n")
+    (project / "tests" / "test_broken.py").write_text("def test_broken():\n    assert False\n")
+    with pytest.raises(BaselineFailing):
+        measure(project, "m.py")  # everything pytest finds, including the broken file
+    _, statuses = measure(project, "m.py", tests=["tests/test_good.py"])
+    assert mutation_score(statuses) == 100.0
+
+
 def test_triage_parses_ids_and_ignores_garbage():
     survivors = generate_mutants("def f(a):\n    return a + 1\n")
     ids = {m.id for m in survivors}

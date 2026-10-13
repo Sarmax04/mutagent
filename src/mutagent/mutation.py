@@ -26,6 +26,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 _CMP = {
     ast.Lt: ast.LtE,
@@ -147,12 +148,26 @@ def copy_project(project: Path) -> Path:
     return work
 
 
-def run_tests(workdir: Path, timeout: float = 30.0) -> TestRun:
-    """Run pytest in ``workdir``. Bytecode is disabled so edits are never stale."""
-    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+def run_tests(
+    workdir: Path, timeout: float = 30.0, tests: Sequence[str] = ()
+) -> TestRun:
+    """Run pytest in ``workdir``, optionally only the given test files.
+
+    ``workdir`` and ``workdir/src`` go first on ``PYTHONPATH`` so the *mutated copy*
+    is what gets imported (flat and ``src/`` layouts), never an installed copy.
+    Bytecode is disabled so edits are never stale.
+    """
+    paths = [str(workdir), str(workdir / "src")]
+    if os.environ.get("PYTHONPATH"):
+        paths.append(os.environ["PYTHONPATH"])
+    env = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPATH": os.pathsep.join(paths),
+    }
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider"],
+            [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *tests],
             cwd=workdir,
             env=env,
             capture_output=True,
@@ -176,6 +191,7 @@ def evaluate(
     mutants: list[Mutant],
     original_source: str,
     timeout: float = 20.0,
+    tests: Sequence[str] = (),
 ) -> dict[int, str]:
     """Run the suite against every mutant. Returns id -> killed|survived|timeout."""
     target_path = work / target
@@ -183,7 +199,7 @@ def evaluate(
     try:
         for mutant in mutants:
             target_path.write_text(mutant.source)
-            result = run_tests(work, timeout)
+            result = run_tests(work, timeout, tests)
             if result.timed_out:
                 statuses[mutant.id] = "timeout"
             elif result.passed or result.returncode == 5:  # 5 = no tests collected

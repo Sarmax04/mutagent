@@ -58,6 +58,29 @@ mutagent run --project examples/demo_project --target pricing.py --rounds 4
 
 Other commands: `mutagent mutants ...` lists the mutants for a module without running anything. `python -m pytest` runs this repo's own tests, which use a fake model and need no API key.
 
+### Real projects
+
+```bash
+# only run the test file(s) that cover the module (much faster, avoids unrelated test dependencies)
+mutagent score --project path/to/lib --target src/pkg/mod.py --tests tests/test_mod.py
+```
+
+- `src/` and flat layouts both work: the mutated copy is put first on `PYTHONPATH`, so an installed copy of the library is never tested by mistake.
+- Libraries that generate files at build time (for example a `_version.py` from setuptools-scm or hatch-vcs) need a placeholder in the checkout you point `--project` at.
+- Cost grows with `mutants x test-run time`; every round re-scores all mutants.
+
+### Targets measured so far
+
+Baseline mutation score of each project's *own* tests, before the agent does anything (measured once, in a cloud Linux container; timings vary by machine). These are not agent results.
+
+| Target (MIT-licensed) | Mutants | Baseline score | One scoring pass |
+|---|---|---|---|
+| cachetools `func.py` | 22 | 72.7% | ~8 s |
+| humanize `number.py` | 140 | 86.4% | ~70 s |
+| humanize `filesize.py` | 24 | 95.8% | ~10 s |
+| humanize `lists.py` | 12 | 91.7% | ~4 s |
+| cachetools `keys.py` | 4 | 100% | ~2 s |
+
 The generated tests are written to `tests/test_mutagent_generated.py` inside the target project, and a JSON report (score per round, tokens used) to `mutagent_report.json`.
 
 ## Results
