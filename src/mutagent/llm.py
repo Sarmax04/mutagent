@@ -143,3 +143,24 @@ class NebiusChat:
         if response.usage is not None:
             self.budget.charge(response.usage.total_tokens)
         return strip_reasoning(response.choices[0].message.content or "")
+
+
+def api_error_message(exc: BaseException) -> str | None:
+    """A readable message for an ``openai`` SDK error, or None for any other error."""
+    try:
+        import openai
+    except ImportError:
+        return None
+    if isinstance(exc, openai.AuthenticationError):
+        return "the API rejected the key (401). Check NEBIUS_API_KEY."
+    if isinstance(exc, openai.PermissionDeniedError):
+        return "the API refused this request (403). The key may lack access to the model."
+    if isinstance(exc, openai.NotFoundError):
+        return "the API returned 404. Check NEBIUS_BASE_URL and the model IDs (NEBIUS_MODEL_FAST / NEBIUS_MODEL_STRONG)."
+    if isinstance(exc, openai.RateLimitError):
+        return "the API rate limit or your credit balance was hit (429). Wait a moment, or check your balance."
+    if isinstance(exc, openai.APIConnectionError):
+        return "could not reach the API. Check NEBIUS_BASE_URL and your network."
+    if isinstance(exc, openai.APIStatusError):
+        return f"the API returned an error ({exc.status_code})."
+    return None

@@ -24,7 +24,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from .llm import ChatModel, ConfigError, NebiusChat, Settings, TokenBudget, load_dotenv
+from .llm import ChatModel, ConfigError, api_error_message, NebiusChat, Settings, TokenBudget, load_dotenv
 from .loop import BaselineFailing, RoundResult, run_loop
 from .presets import PRESETS, Preset, get_preset, project_path, replays_dir
 from .safety import screen_test_code
@@ -191,7 +191,9 @@ class RunManager:
             state.status = "error"
         except Exception as exc:  # noqa: BLE001 - report any failure to the visitor
             log.exception("live run %s failed", state.id)
-            state.error = f"The run stopped: {type(exc).__name__}. See the server log for details."
+            state.error = "The run stopped: " + (
+                api_error_message(exc) or f"{type(exc).__name__}. See the server log for details."
+            )
             state.status = "error"
         finally:
             with self._lock:

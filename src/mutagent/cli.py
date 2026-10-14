@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from .llm import ConfigError, NebiusChat, Settings, TokenBudget, load_dotenv
+from .llm import ConfigError, NebiusChat, api_error_message, Settings, TokenBudget, load_dotenv
 from .loop import BaselineFailing, measure, run_loop
 from .mutation import counts, generate_mutants, mutation_score
 
@@ -105,6 +105,12 @@ def main(argv: list[str] | None = None) -> int:
     except BaselineFailing as exc:
         print("error: the project's own tests fail before any mutation:\n" + str(exc), file=sys.stderr)
         return 1
+    except Exception as exc:  # noqa: BLE001 - turn model-API failures into a readable message
+        message = api_error_message(exc)
+        if message is None:
+            raise
+        print(f"error: {message}", file=sys.stderr)
+        return 3
 
     data = report.to_dict()
     data["models"] = {"fast": settings.model_fast, "strong": settings.model_strong}

@@ -53,3 +53,18 @@ def test_strip_reasoning_removes_think_blocks():
     assert strip_reasoning("<think>plan\n```python\nx\n```</think>answer") == "answer"
     assert strip_reasoning("hidden thoughts</think>answer") == "answer"
     assert strip_reasoning("plain") == "plain"
+
+
+def test_api_error_message_translates_sdk_errors():
+    import httpx
+    import openai
+
+    from mutagent.llm import api_error_message
+
+    request = httpx.Request("POST", "http://example.invalid/v1/chat/completions")
+    response = httpx.Response(401, request=request)
+    assert "NEBIUS_API_KEY" in api_error_message(
+        openai.AuthenticationError("bad", response=response, body=None)
+    )
+    assert "reach" in api_error_message(openai.APIConnectionError(request=request))
+    assert api_error_message(ValueError("x")) is None
