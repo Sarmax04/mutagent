@@ -1,0 +1,154 @@
+{
+  "target": "src/cachetools/func.py",
+  "mutant_count": 22,
+  "initial_score": 72.72727272727273,
+  "final_score": 100.0,
+  "tokens_used": 6608,
+  "generated_path": "tests/test_mutagent_generated.py",
+  "generated_code": "import unittest\nimport cachetools.func as cf\n\n\nclass FIFOCacheDefaultTest(unittest.TestCase):\n    def test_default_maxsize(self):\n        cached = cf.fifo_cache()(lambda x: x)\n        self.assertEqual(cached.cache_parameters(), {\"maxsize\": 128, \"typed\": False})\n        self.assertEqual(cached.cache.maxsize, 128)\n\n\nclass LFUCacheDefaultTest(unittest.TestCase):\n    def test_default_maxsize(self):\n        cached = cf.lfu_cache()(lambda x: x)\n        self.assertEqual(cached.cache_parameters(), {\"maxsize\": 128, \"typed\": False})\n        self.assertEqual(cached.cache.maxsize, 128)\n\n\nclass LRUCacheDefaultTest(unittest.TestCase):\n    def test_default_maxsize(self):\n        cached = cf.lru_cache()(lambda x: x)\n        self.assertEqual(cached.cache_parameters(), {\"maxsize\": 128, \"typed\": False})\n        self.assertEqual(cached.cache.maxsize, 128)\n\n\nclass RRCacheDefaultTest(unittest.TestCase):\n    def test_default_maxsize(self):\n        cached = cf.rr_cache()(lambda x: x)\n        self.assertEqual(cached.cache_parameters(), {\"maxsize\": 128, \"typed\": False})\n        self.assertEqual(cached.cache.maxsize, 128)\n\n\nclass TTLCacheDefaultTest(unittest.TestCase):\n    def test_default_maxsize(self):\n        cached = cf.ttl_cache()(lambda x: x)\n        self.assertEqual(cached.cache_parameters(), {\"maxsize\": 128, \"typed\": False})\n        self.assertEqual(cached.cache.maxsize, 128)\n        self.assertEqual(cached.cache.ttl, 600)\n\n    def test_default_ttl(self):\n        cached = cf.ttl_cache()(lambda x: x)\n        self.assertEqual(cached.cache.ttl, 600)\n",
+  "mutants": [
+    {
+      "id": 0,
+      "line": 35,
+      "kind": "const"
+    },
+    {
+      "id": 1,
+      "line": 35,
+      "kind": "const"
+    },
+    {
+      "id": 2,
+      "line": 49,
+      "kind": "const"
+    },
+    {
+      "id": 3,
+      "line": 49,
+      "kind": "const"
+    },
+    {
+      "id": 4,
+      "line": 63,
+      "kind": "const"
+    },
+    {
+      "id": 5,
+      "line": 63,
+      "kind": "const"
+    },
+    {
+      "id": 6,
+      "line": 77,
+      "kind": "const"
+    },
+    {
+      "id": 7,
+      "line": 77,
+      "kind": "const"
+    },
+    {
+      "id": 8,
+      "line": 91,
+      "kind": "const"
+    },
+    {
+      "id": 9,
+      "line": 91,
+      "kind": "const"
+    },
+    {
+      "id": 10,
+      "line": 91,
+      "kind": "const"
+    },
+    {
+      "id": 11,
+      "line": 28,
+      "kind": "const"
+    },
+    {
+      "id": 12,
+      "line": 44,
+      "kind": "const"
+    },
+    {
+      "id": 13,
+      "line": 58,
+      "kind": "const"
+    },
+    {
+      "id": 14,
+      "line": 72,
+      "kind": "const"
+    },
+    {
+      "id": 15,
+      "line": 86,
+      "kind": "const"
+    },
+    {
+      "id": 16,
+      "line": 100,
+      "kind": "const"
+    },
+    {
+      "id": 17,
+      "line": 44,
+      "kind": "const"
+    },
+    {
+      "id": 18,
+      "line": 58,
+      "kind": "const"
+    },
+    {
+      "id": 19,
+      "line": 72,
+      "kind": "const"
+    },
+    {
+      "id": 20,
+      "line": 86,
+      "kind": "const"
+    },
+    {
+      "id": 21,
+      "line": 100,
+      "kind": "const"
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "score": 72.72727272727273,
+      "killed": 16,
+      "survived": 6,
+      "accepted": true,
+      "note": "baseline",
+      "tokens_used": 0,
+      "survivors": [
+        0,
+        2,
+        4,
+        6,
+        8,
+        9
+      ]
+    },
+    {
+      "round": 1,
+      "score": 100.0,
+      "killed": 22,
+      "survived": 0,
+      "accepted": true,
+      "note": "accepted: score improved",
+      "tokens_used": 6608,
+      "survivors": []
+    }
+  ],
+  "models": {
+    "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "strong": "nvidia/nemotron-3-super-120b-a12b"
+  }
+}

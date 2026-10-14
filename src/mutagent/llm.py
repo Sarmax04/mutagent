@@ -8,6 +8,7 @@ docs and model catalog into ``.env``.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -78,7 +79,7 @@ def load_dotenv(path: Path) -> None:
     """Tiny .env reader (KEY=VALUE lines); existing environment wins."""
     if not path.is_file():
         return
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -124,25 +125,43 @@ class NebiusChat:
         self._client = OpenAI(api_key=settings.api_key, base_url=settings.base_url)
         self._models = {Tier.FAST: settings.model_fast, Tier.STRONG: settings.model_strong}
         self.budget = budget or TokenBudget(settings.token_budget)
+        self.max_tokens = int(os.environ.get("NEBIUS_MAX_TOKENS", "").strip() or 8192)
+        self.last_info = ""
+        raw_extra = os.environ.get("NEBIUS_EXTRA_BODY", "").strip()
+        try:
+            self.extra_body = json.loads(raw_extra) if raw_extra else None
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"NEBIUS_EXTRA_BODY is not valid JSON: {exc}") from exc
+        raw_temp = os.environ.get("NEBIUS_TEMPERATURE", "").strip()
+        self.temperature = float(raw_temp) if raw_temp else None
 
     def complete(
         self,
         tier: Tier,
         messages: list[dict[str, str]],
         *,
-        temperature: float = 0.2,
-        max_tokens: int = 4096,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         self.budget.check()
         response = self._client.chat.completions.create(
             model=self._models[tier],
             messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            temperature=temperature if temperature is not None
+            else (self.temperature if self.temperature is not None else 0.2),
+            max_tokens=max_tokens or self.max_tokens,
+            **({"extra_body": self.extra_body} if self.extra_body else {}),
         )
         if response.usage is not None:
             self.budget.charge(response.usage.total_tokens)
-        return strip_reasoning(response.choices[0].message.content or "")
+        choice = response.choices[0]
+        content = choice.message.content or ""
+        completion = response.usage.completion_tokens if response.usage is not None else "?"
+        self.last_info = (
+            f"finish_reason={choice.finish_reason}, completion_tokens={completion}, "
+            f"reply_chars={len(content)}"
+        )
+        return strip_reasoning(content)
 
 
 def api_error_message(exc: BaseException) -> str | None:

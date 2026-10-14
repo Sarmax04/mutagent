@@ -160,15 +160,18 @@ _LIMITED_BOOTSTRAP = (
 )
 
 
-def _pytest_argv(tests: Sequence[str]) -> list[str]:
-    args = ["-x", "-q", "-p", "no:cacheprovider", *tests]
+def _pytest_argv(tests: Sequence[str], fail_fast: bool = True) -> list[str]:
+    args = [*(["-x"] if fail_fast else []), "-q", "-p", "no:cacheprovider", *tests]
     if os.name == "posix" and os.environ.get("MUTAGENT_LIMITS") == "1":
         return [sys.executable, "-c", _LIMITED_BOOTSTRAP, *args]
     return [sys.executable, "-m", "pytest", *args]
 
 
 def run_tests(
-    workdir: Path, timeout: float = 30.0, tests: Sequence[str] = ()
+    workdir: Path,
+    timeout: float = 30.0,
+    tests: Sequence[str] = (),
+    fail_fast: bool = True,
 ) -> TestRun:
     """Run pytest in ``workdir``, optionally only the given test files.
 
@@ -182,15 +185,19 @@ def run_tests(
     env = {
         **os.environ,
         "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
         "PYTHONPATH": os.pathsep.join(paths),
     }
     try:
         proc = subprocess.run(
-            _pytest_argv(tests),
+            _pytest_argv(tests, fail_fast),
             cwd=workdir,
             env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
@@ -217,7 +224,7 @@ def evaluate(
     statuses: dict[int, str] = {}
     try:
         for mutant in mutants:
-            target_path.write_text(mutant.source)
+            target_path.write_text(mutant.source, encoding="utf-8")
             result = run_tests(work, timeout, tests)
             if result.timed_out:
                 statuses[mutant.id] = "timeout"
@@ -226,7 +233,7 @@ def evaluate(
             else:
                 statuses[mutant.id] = "killed"
     finally:
-        target_path.write_text(original_source)
+        target_path.write_text(original_source, encoding="utf-8")
     return statuses
 
 

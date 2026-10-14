@@ -322,7 +322,10 @@ function paintRound(rounds, index) {
 function plainNote(round) {
   const note = round.note || "";
   if (note === "baseline") return "The library's own tests";
-  if (note.startsWith("accepted")) return "Kept the new tests. The score rose.";
+  if (note.startsWith("accepted")) {
+    const m = note.match(/\((\d+) failing/);
+    return "Kept the new tests. The score rose." + (m ? " " + m[1] + " wrong test(s) were removed first." : "");
+  }
   if (note.includes("fail on the original")) return "Dropped the new tests. They failed on the original code.";
   if (note.includes("no score improvement")) return "Dropped the new tests. They caught nothing new.";
   if (note.includes("no test code")) return "Dropped the reply. It had no test code.";

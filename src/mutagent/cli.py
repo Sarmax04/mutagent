@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.cmd == "mutants":
-        mutants = generate_mutants((project / args.target).read_text())
+        mutants = generate_mutants((project / args.target).read_text(encoding="utf-8"))
         print(f"{len(mutants)} mutants")
         for m in mutants:
             print(f"  #{m.id:<3} line {m.lineno:<4} {m.kind}")
@@ -115,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     data = report.to_dict()
     data["models"] = {"fast": settings.model_fast, "strong": settings.model_strong}
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.report).write_text(json.dumps(data, indent=2))
+    Path(args.report).write_text(json.dumps(data, indent=2), encoding="utf-8")
     print(
         f"\nscore {report.initial_score:.1f}% -> {report.final_score:.1f}% "
         f"using {report.tokens_used} tokens; report: {args.report}"

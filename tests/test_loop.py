@@ -207,3 +207,34 @@ def test_triage_is_optional_and_uses_the_fast_tier(project):
     plain = FakeLLM([fenced(STRONG_TESTS)])
     run_loop(project, "pricing.py", plain, max_rounds=1, log=quiet)
     assert Tier.FAST not in plain.calls
+
+
+def test_non_ascii_test_code_is_saved_as_utf8(project):
+    # Windows defaults to a legacy encoding; the file must be written as UTF-8.
+    code = STRONG_TESTS + "\n# approx ≈ and é\n"
+    llm = FakeLLM([fenced(code)])
+    run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet)
+    raw = (project / GENERATED_REL).read_bytes()
+    assert "≈".encode("utf-8") in raw
+
+
+def test_one_wrong_test_is_dropped_and_the_rest_kept(project):
+    wrong = "\n\ndef test_wrong_expectation():\n    assert apply_discount(100, 0) == 1\n"
+    llm = FakeLLM([fenced(STRONG_TESTS + wrong)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet)
+    assert report.rounds[1].accepted
+    assert "dropped" in report.rounds[1].note
+    saved = (project / GENERATED_REL).read_text()
+    assert "test_wrong_expectation" not in saved
+    assert "test_discount_values" in saved
+    assert report.final_score >= 90
+
+
+def test_prune_gives_up_when_nothing_would_remain():
+    from mutagent.loop import failing_test_names, prune_tests
+
+    code = "def test_a():\n    assert False\n"
+    assert prune_tests(code, ["test_a"]) is None
+    assert prune_tests(code, ["missing"]) is None
+    assert failing_test_names("FAILED t.py::TestX::test_a - boom") is None
+    assert failing_test_names("FAILED t.py::test_a[1] - boom") == ["test_a"]

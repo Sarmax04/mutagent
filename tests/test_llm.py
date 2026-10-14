@@ -68,3 +68,14 @@ def test_api_error_message_translates_sdk_errors():
     )
     assert "reach" in api_error_message(openai.APIConnectionError(request=request))
     assert api_error_message(ValueError("x")) is None
+
+
+def test_extra_body_and_temperature_are_read_from_env(monkeypatch):
+    from mutagent.llm import NebiusChat, Settings
+
+    monkeypatch.setenv("NEBIUS_EXTRA_BODY", '{"chat_template_kwargs": {"enable_thinking": false}}')
+    monkeypatch.setenv("NEBIUS_TEMPERATURE", "1.0")
+    settings = Settings("k", "http://localhost:1/v1/", "f", "s")
+    chat = NebiusChat(settings)
+    assert chat.extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert chat.temperature == 1.0

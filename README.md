@@ -35,12 +35,11 @@ LLM-generated tests often pass without testing anything. Coverage and "number of
 
 ## Where NVIDIA and Nebius are used
 
-<!-- TODO before submitting: fill in the exact model IDs and which Nebius services you ended up using. -->
 
 | Component | What it does |
 |---|---|
-| NVIDIA Nemotron (STRONG tier) | TODO: model ID. Writes tests targeting surviving mutants. |
-| NVIDIA Nemotron (FAST tier) | TODO: model ID. Optional triage of likely-equivalent mutants. |
+| NVIDIA Nemotron (STRONG tier) | `nvidia/nemotron-3-super-120b-a12b`. Writes tests targeting surviving mutants. |
+| NVIDIA Nemotron (FAST tier) | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`. Optional triage of likely-equivalent mutants (`--triage`); not used in the runs below. |
 | Nebius Token Factory | All inference calls (`src/mutagent/llm.py`). |
 | Web demo hosting | The demo page runs on Render's free tier (Docker). Only the model calls go to Nebius, which the hackathon FAQ allows. |
 
@@ -109,11 +108,20 @@ Container image (deployed on Render; the Dockerfile listens on `$PORT`, default 
 
 ## Results
 
-<!-- TODO: fill in from real runs; keep failures in, they make the numbers credible. -->
+Real runs against Nebius Token Factory (Nemotron 3 Super as the STRONG model), 3 rounds at most. Both runs are recorded in `replays/` and play back in the web demo.
 
 | Target | Score before | Score after | Rounds | Tokens |
 |---|---|---|---|---|
-| `examples/demo_project/pricing.py` | TODO | TODO | TODO | TODO |
+| cachetools `func.py` (22 mutants) | 72.7% | 100.0% | 1 | 6,608 |
+| `examples/demo_project/pricing.py` (29 mutants) | 24.1% | 96.6% | 3 | 9,745 |
+
+The remaining pricing mutant survives because it is equivalent: changing `<= 5` to `< 5` gives the same result at exactly 5 kg, so no test can tell them apart.
+
+Failures I hit while getting these runs, and what changed:
+
+- The reasoning model spent its whole reply budget thinking and returned no code. Fixes: a higher reply limit (`NEBIUS_MAX_TOKENS`), a stricter prompt, and an option to switch thinking off (`NEBIUS_EXTRA_BODY`).
+- One wrong expectation made the agent reject a whole file of otherwise good tests. It now removes only the failing test functions and re-checks the rest.
+- On Windows the generated tests were saved in a legacy encoding and crashed on a non-ASCII character. All files are now read and written as UTF-8.
 
 ## Safety
 

@@ -14,6 +14,7 @@ Serverless Job, never on a machine you care about.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shutil
@@ -38,7 +39,11 @@ SYSTEM_PROMPT = (
     "You are an expert Python test engineer. You write deterministic pytest tests "
     "that detect specific bugs. Never use the network, randomness, sleeping or "
     "file-system side effects. Assert exact expected values and exact exception "
-    "types, and test boundary values on both sides of every comparison."
+    "types, and test boundary values on both sides of every comparison. Before "
+    "asserting a value, read the source to see exactly what it returns or raises "
+    "at that input (an input that looks like an edge case may be valid). Keep any "
+    "reasoning short. Your reply must be ONE ```python block with the complete "
+    "test file; do not explain, and do not think out loud in the reply."
 )
 
 
@@ -159,6 +164,50 @@ def build_messages(
     ]
 
 
+_FAILED_LINE = re.compile(r"^FAILED\s+(\S+)", re.MULTILINE)
+
+
+def failing_test_names(output: str) -> list[str] | None:
+    """Names of top-level test functions that failed, from pytest's short summary.
+
+    None when the failures cannot be pinned on whole functions (collection errors,
+    test classes), in which case nothing is pruned.
+    """
+    if re.search(r"^ERROR\b", output, re.MULTILINE):
+        return None
+    names: list[str] = []
+    for node_id in _FAILED_LINE.findall(output):
+        parts = node_id.split("::")
+        if len(parts) != 2:
+            return None
+        names.append(parts[1].split("[")[0])
+    return sorted(set(names)) or None
+
+
+def prune_tests(code: str, names: Sequence[str]) -> str | None:
+    """``code`` without the named top-level test functions, or None if impossible."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+    funcs = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    if any(name not in funcs for name in names):
+        return None
+    remaining = [n for n in funcs if n.startswith("test") and n not in names]
+    if not remaining:
+        return None
+    lines = code.splitlines(keepends=True)
+    for name in sorted(names, key=lambda n: funcs[n].lineno, reverse=True):
+        node = funcs[name]
+        start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
+        del lines[start - 1 : node.end_lineno]
+    return "".join(lines).rstrip() + "\n"
+
+
 def triage_equivalent(llm: ChatModel, survivors: list[Mutant]) -> set[int]:
     """Ask the FAST model which survivors are probably equivalent (unkillable).
 
@@ -218,7 +267,7 @@ def read_existing_tests(
     for path in paths:
         if not path.is_file() or path.relative_to(work).as_posix() == generated_rel:
             continue
-        chunks.append(f"# {path.name}\n{path.read_text()}")
+        chunks.append(f"# {path.name}\n{path.read_text(encoding="utf-8")}")
     return "\n\n".join(chunks)[:limit]
 
 
@@ -231,7 +280,7 @@ def measure(
     """Score the project's current tests without calling any model."""
     work = copy_project(Path(project).resolve())
     try:
-        source = (work / target).read_text()
+        source = (work / target).read_text(encoding="utf-8")
         mutants = generate_mutants(source)
         chosen = selection(work, tests, GENERATED_REL)
         base = run_tests(work, test_timeout, chosen)
@@ -291,7 +340,7 @@ def _run(
     on_round: Callable[[RoundResult], None] | None,
     code_filter: Callable[[str], list[str]] | None,
 ) -> LoopReport:
-    source = (work / target).read_text()
+    source = (work / target).read_text(encoding="utf-8")
     mutants = generate_mutants(source)
     if not mutants:
         raise ValueError(f"{target} has no mutation sites; nothing to test against")
@@ -302,7 +351,7 @@ def _run(
 
     generated = work / generated_rel
     generated.parent.mkdir(parents=True, exist_ok=True)
-    current = generated.read_text() if generated.exists() else ""
+    current = generated.read_text(encoding="utf-8") if generated.exists() else ""
     module = module_name(target)
 
     def spent() -> int:
@@ -311,7 +360,7 @@ def _run(
 
     def restore() -> None:
         if current:
-            generated.write_text(current)
+            generated.write_text(current, encoding="utf-8")
         elif generated.exists():
             generated.unlink()
 
@@ -374,7 +423,11 @@ def _run(
         code = extract_code(reply)
         problems = code_filter(code) if (code is not None and code_filter) else []
         if code is None:
+            info = getattr(llm, "last_info", "")
             note, accepted = "rejected: no test code in reply", False
+            if info:
+                note += f" ({info})"
+            log(f"round {rnd}: reply started with {reply[:200]!r}")
             stale += 1
         elif problems:
             shown_problems = "; ".join(problems[:3])
@@ -382,11 +435,27 @@ def _run(
             note, accepted = f"rejected: not allowed ({shown_problems})", False
             stale += 1
         else:
-            generated.write_text(code)
+            dropped = 0
+            generated.write_text(code, encoding="utf-8")
             check = run_tests(work, test_timeout, selection(work, tests, generated_rel))
+            if not check.passed:
+                # One wrong expectation should not throw away the good tests: drop
+                # only the failing test functions and re-check the rest.
+                every = run_tests(work, test_timeout, [generated_rel], fail_fast=False)
+                names = None if every.timed_out else failing_test_names(every.output)
+                pruned = prune_tests(code, names) if names else None
+                if pruned is not None:
+                    generated.write_text(pruned, encoding="utf-8")
+                    recheck = run_tests(work, test_timeout, selection(work, tests, generated_rel))
+                    if recheck.passed:
+                        dropped = len(names)
+                        log(f"round {rnd}: dropped {len(names)} failing test(s): {', '.join(names)}")
+                        code, check = pruned, recheck
             if not check.passed:
                 restore()
                 last_error = check.output
+                tail = check.output.strip()[-1500:]
+                log(f"round {rnd}: the new tests failed on the original code. Output (last part):\n{tail}")
                 note, accepted = "rejected: tests fail on the original code", False
                 stale += 1
             else:
@@ -400,6 +469,8 @@ def _run(
                     killed, survived = counts(statuses)
                     last_error, stale = None, 0
                     note, accepted = "accepted: score improved", True
+                    if dropped:
+                        note += f" ({dropped} failing test(s) dropped)"
                 else:
                     restore()
                     note, accepted = "rejected: no score improvement", False
@@ -417,6 +488,6 @@ def _run(
     if write_back and current:
         out = project / generated_rel
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(current)
+        out.write_text(current, encoding="utf-8")
         report.generated_path = generated_rel
     return report
