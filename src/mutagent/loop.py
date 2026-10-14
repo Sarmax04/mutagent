@@ -267,7 +267,7 @@ def read_existing_tests(
     for path in paths:
         if not path.is_file() or path.relative_to(work).as_posix() == generated_rel:
             continue
-        chunks.append(f"# {path.name}\n{path.read_text(encoding="utf-8")}")
+        chunks.append(f"# {path.name}\n" + path.read_text(encoding="utf-8"))
     return "\n\n".join(chunks)[:limit]
 
 
