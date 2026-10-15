@@ -10,8 +10,12 @@ Timeouts count as killed (the mutant broke the program, usually an infinite
 loop). Some survivors are *equivalent mutants* that change no observable
 behaviour and can never be killed, so 100% is not always reachable.
 
-This engine is deliberately minimal. Swap it for mutmut or Stryker if you need
-more operators; the rest of the agent only needs ``Mutant`` objects.
+Operators: flipped comparisons (``<``/``<=``, ``==``/``!=``, ``in``/``not in``,
+``is``/``is not``), swapped arithmetic (also ``+=`` and friends), ``and``/``or``
+swaps, removed ``not``, negated ``if`` conditions, ``return x`` -> ``return None``,
+and bumped integer / flipped boolean constants. This engine is still small. Swap it
+for mutmut or Stryker if you need more; the rest of the agent only needs ``Mutant``
+objects.
 """
 
 from __future__ import annotations
@@ -35,6 +39,10 @@ _CMP = {
     ast.GtE: ast.Gt,
     ast.Eq: ast.NotEq,
     ast.NotEq: ast.Eq,
+    ast.In: ast.NotIn,
+    ast.NotIn: ast.In,
+    ast.Is: ast.IsNot,
+    ast.IsNot: ast.Is,
 }
 _BIN = {
     ast.Add: ast.Sub,
@@ -55,7 +63,7 @@ Site = tuple[ast.AST, str, int]
 class Mutant:
     id: int
     lineno: int
-    kind: str  # compare | arith | boolop | not | const
+    kind: str  # compare | arith | boolop | not | const | negate | return
     diff: str  # unified diff against the normalised original
     source: str  # full mutated module source
 
@@ -68,8 +76,16 @@ def _sites(tree: ast.AST) -> list[Site]:
             for i, op in enumerate(node.ops):
                 if type(op) in _CMP:
                     out.append((node, "compare", i))
-        elif isinstance(node, ast.BinOp) and type(node.op) in _BIN:
+        elif isinstance(node, (ast.BinOp, ast.AugAssign)) and type(node.op) in _BIN:
             out.append((node, "arith", 0))
+        elif isinstance(node, (ast.If, ast.IfExp)):
+            out.append((node, "negate", 0))
+        elif (
+            isinstance(node, ast.Return)
+            and node.value is not None
+            and not (isinstance(node.value, ast.Constant) and node.value.value is None)
+        ):
+            out.append((node, "return", 0))
         elif isinstance(node, ast.BoolOp) and type(node.op) in _BOOL:
             out.append((node, "boolop", 0))
         elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
@@ -90,6 +106,12 @@ def _apply(site: Site) -> None:
     elif kind == "not":
         # `not x` -> `not not x`, which has the truthiness of `x` (negation removed)
         node.operand = ast.UnaryOp(op=ast.Not(), operand=node.operand)
+    elif kind == "negate":
+        # `if x:` -> `if not x:`
+        node.test = ast.UnaryOp(op=ast.Not(), operand=node.test)
+    elif kind == "return":
+        # `return x` -> `return None`
+        node.value = ast.Constant(value=None)
     elif kind == "const":
         if isinstance(node.value, bool):
             node.value = not node.value

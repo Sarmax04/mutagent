@@ -1,0 +1,646 @@
+{
+  "target": "inflection/__init__.py",
+  "mutant_count": 108,
+  "initial_score": 88.88888888888889,
+  "final_score": 95.37037037037037,
+  "tokens_used": 39214,
+  "generated_path": null,
+  "generated_code": "import pytest\nfrom inflection.__init__ import PLURALS, SINGULARS, _irregular\n\n\n\ndef test_insert_at_one_for_upper_not_equal_first_vs_second_char_alt():\n    saved_plurals = list(PLURALS)\n    saved_singulars = list(SINGULARS)\n    try:\n        PLURALS.clear()\n        SINGULARS.clear()\n        _irregular('Apple', 'orange')  # 'A' vs 'o' -> uppers 'A','O' not equal\n        # else branch\n        assert len(PLURALS) >= 4\n        assert len(SINGULARS) >= 2\n        # Check that SINGULARS[0] corresponds to plural[0].lower() caseinsensitive pattern\n        # plural[0] = 'o', lower -> 'o', caseinsensitive -> '[oO]', plus 'range' => pattern '(?i)(o)range$' actually\n        # replacement: singular[0].lower() + singular[1:] = 'apple' (since singular='Apple')\n        # But due to inserts at 0, the last insert ends at index 0\n        # Order of inserts in else:\n        # PLURALS.insert(0, (singular[0].upper() + caseinsensitive(singular[1:]), plural[0].upper() + plural[1:]))  # 'A'+pple -> '[pP][pP][lL][eE]'? Wait caseinsensitive on singular[1:] = 'pple'\n        # Actually caseinsensitive('pple') = '[pP][pP][lL][eE]'\n        # Then plural[0].upper()+plural[1:] = 'O'+'range' = 'Orange'\n        # So pattern: r'A[pP][pP][lL][eE]$' replacement 'Orange'\n        # Inserted at 0\n        # Second: plural[0].lower()+caseinsensitive(singular[1:]) = 'a'+[pP][pP][lL][eE] replacement 'orange'\n        # Third: plural[0].upper()+caseinsensitive(plural[1:]) = 'O'+[rR][aA][nN][gG][eE] replacement 'Orange'\n        # Fourth: plural[0].lower()+caseinsensitive(plural[1:]) = 'o'+[rR][aA][nN][gG][eE] replacement 'orange'\n        # Then SINGULARS.insert(0, (plural[0].upper()+caseinsensitive(plural[1:]), singular[0].upper()+singular[1:])) # 'O'+[rR][aA][nN][gG][eE] replacement 'Apple'\n        # Then SINGULARS.insert(0, (plural[0].lower()+caseinsensitive(plural[1:]), singular[0].lower()+singular[1:])) # 'o'+[rR][aA][nN][gG][eE] replacement 'apple'\n        # So final SINGULARS[0] is from the last insert: plural[0].lower()+caseinsensitive(plural[1:]) => 'o[...]range' replacement 'apple'\n        # SINGULARS[1] is from the first insert: plural[0].upper()+caseinsensitive(plural[1:]) => 'O[...]range' replacement 'Apple'\n        assert 'apple' == SINGULARS[0][1]\n        assert 'Apple' == SINGULARS[1][1]\n    finally:\n        PLURALS[:] = saved_plurals\n        SINGULARS[:] = saved_singulars\n\ndef test_insert_index_shift_detects_mutants_34_to_42():\n    # This test checks that insertions happen at index 0 as expected.\n    # Mutants shift some inserts to index 1, changing the order.\n    saved_plurals = list(PLURALS)\n    saved_singulars = list(SINGULARS)\n    try:\n        PLURALS.clear()\n        SINGULARS.clear()\n        _irregular('person', 'people')\n        # For equal upper case first letters (both 'p'), we go into the if branch.\n        # Expected inserts in order:\n        # 1. PLURALS.insert(0, ('(?i)(p)erson$', r'\\1' + 'eople'))   # '(?i)(p)erson$'\n        # 2. PLURALS.insert(0, ('(?i)(p)eople$', r'\\1' + 'eople'))   # '(?i)(p)eople$'\n        # 3. SINGULARS.insert(0, ('(?i)(p)eople$', r'\\1' + 'erson')) # '(?i)(p)eople$'\n        # After these, index 0 holds the last inserted: SINGULARS pattern\n        # index 1 holds the second: PLURALS pattern for '(?i)(p)eople$'\n        # index 2 holds the first: PLURALS pattern for '(?i)(p)erson$'\n        assert '(?i)(p)eople$' == PLURALS[0][0]   # Mutant 35 would move this to index 1\n        assert '(?i)(p)erson$' == PLURALS[1][0]   # Mutant 34 would move this to index 2\n        assert '(?i)(p)eople$' == SINGULARS[0][0] # Mutant 36 would move this to index 1\n    finally:\n        PLURALS[:] = saved_plurals\n        SINGULARS[:] = saved_singulars\n\ndef test_insert_index_shift_else_branch_detects_mutants_37_to_42():\n    saved_plurals = list(PLURALS)\n    saved_singulars = list(SINGULARS)\n    try:\n        PLURALS.clear()\n        SINGULARS.clear()\n        _irregular('Apple', 'Banana')  # 'A' vs 'B' uppers not equal -> else branch\n        # Else branch inserts in order:\n        # PLURALS.insert(0, ('{}{}$'.format('A'.upper(), caseinsensitive('pple')), 'B'+'anana')) # 'A[pP][pP][lL][eE]$'\n        # PLURALS.insert(0, ('{}{}$'.format('A'.lower(), caseinsensitive('pple')), 'b'+'anana')) # 'a[pP][pP][lL][eE]$'\n        # PLURALS.insert(0, ('{}{}$'.format('B'.upper(), caseinsensitive('anana')), 'B'+'anana')) # 'B[aA][nN][aA][nN][aA]$'\n        # PLURALS.insert(0, ('{}{}$'.format('B'.lower(), caseinsensitive('anana')), 'b'+'anana')) # 'b[aA][nN][aA][nN][aA]$'\n        # SINGULARS.insert(0, ('{}{}$'.format('B'.upper(), caseinsensitive('anana')), 'A'+'pple')) # 'B[aA][nN][aA][nN][aA]$'\n        # SINGULARS.insert(0, ('{}{}$'.format('B'.lower(), caseinsensitive('anana')), 'a'+'pple')) # 'b[aA][nN][aA][nN][aA]$'\n        # So final PLURALS[0] is last plural insert: 'b[aA][nN][aA][nN][aA]$'\n        # PLURALS[1] is second last: 'B[aA][nN][aA][nN][aA]$'\n        # PLURALS[2] is third: 'a[pP][pP][lL][eE]$'\n        # PLURALS[3] is fourth: 'A[pP][pP][lL][eE]$'\n        # SINGULARS[0] is last singular insert: 'b[aA][nN][aA][nN][aA]$'\n        # SINGULARS[1] is first singular insert: 'B[aA][nN][aA][nN][aA]$'\n        assert PLURALS[0][0].startswith('b') and '[aA][nN][aA][nN][aA]' in PLURALS[0][0]\n        assert PLURALS[1][0].startswith('B') and '[aA][nN][aA][nN][aA]' in PLURALS[1][0]\n        assert PLURALS[2][0].startswith('a') and '[pP][pP][lL][eE]' in PLURALS[2][0]\n        assert PLURALS[3][0].startswith('A') and '[pP][pP][lL][eE]' in PLURALS[3][0]\n        assert SINGULARS[0][0].startswith('b') and '[aA][nN][aA][nN][aA]' in SINGULARS[0][0]\n        assert SINGULARS[1][0].startswith('B') and '[aA][nN][aA][nN][aA]' in SINGULARS[1][0]\n        # Mutants 37-42 shift various inserts to index 1, which would disrupt this order.\n    finally:\n        PLURALS[:] = saved_plurals\n        SINGULARS[:] = saved_singulars\n\ndef test_insert_index_shift_else_branch_singulars_detects_mutants_41_42():\n    saved_plurals = list(PLURALS)\n    saved_singulars = list(SINGULARS)\n    try:\n        PLURALS.clear()\n        SINGULARS.clear()\n        _irregular('Cat', 'Dog')  # 'C' vs 'D' uppers not equal\n        # Else branch\n        # SINGULARS.insert(0, ('{}{}$'.format('D'.upper(), caseinsensitive('og')), 'C'+'at')) # 'D[oO][gG]$'\n        # SINGULARS.insert(0, ('{}{}$'.format('D'.lower(), caseinsensitive('og')), 'c'+'at')) # 'd[oO][gG]$'\n        # So SINGULARS[0] should be 'd[oO][gG]$' (lower)\n        # SINGULARS[1] should be 'D[oO][gG]$' (upper)\n        assert SINGULARS[0][0].endswith('$') and SINGULARS[0][0].startswith('d') and '[oO][gG]' in SINGULARS[0][0]\n        assert SINGULARS[1][0].endswith('$') and SINGULARS[1][0].startswith('D') and '[oO][gG]' in SINGULARS[1][0]\n        # Mutant 41 would insert the upper case singular at index 1 instead of 0, shifting things.\n        # Mutant 42 would insert the lower case singular at index 1 instead of 0.\n    finally:\n        PLURALS[:] = saved_plurals\n        SINGULARS[:] = saved_singulars\n\n\nif __name__ == '__main__':\n    pytest.main([__file__])\n",
+  "mutants": [
+    {
+      "id": 0,
+      "line": 102,
+      "kind": "negate"
+    },
+    {
+      "id": 1,
+      "line": 165,
+      "kind": "negate"
+    },
+    {
+      "id": 2,
+      "line": 180,
+      "kind": "return"
+    },
+    {
+      "id": 3,
+      "line": 201,
+      "kind": "return"
+    },
+    {
+      "id": 4,
+      "line": 226,
+      "kind": "negate"
+    },
+    {
+      "id": 5,
+      "line": 257,
+      "kind": "return"
+    },
+    {
+      "id": 6,
+      "line": 274,
+      "kind": "negate"
+    },
+    {
+      "id": 7,
+      "line": 281,
+      "kind": "return"
+    },
+    {
+      "id": 8,
+      "line": 300,
+      "kind": "negate"
+    },
+    {
+      "id": 9,
+      "line": 334,
+      "kind": "return"
+    },
+    {
+      "id": 10,
+      "line": 351,
+      "kind": "return"
+    },
+    {
+      "id": 11,
+      "line": 372,
+      "kind": "return"
+    },
+    {
+      "id": 12,
+      "line": 394,
+      "kind": "return"
+    },
+    {
+      "id": 13,
+      "line": 416,
+      "kind": "return"
+    },
+    {
+      "id": 14,
+      "line": 100,
+      "kind": "return"
+    },
+    {
+      "id": 15,
+      "line": 102,
+      "kind": "compare"
+    },
+    {
+      "id": 16,
+      "line": 144,
+      "kind": "const"
+    },
+    {
+      "id": 17,
+      "line": 166,
+      "kind": "return"
+    },
+    {
+      "id": 18,
+      "line": 168,
+      "kind": "return"
+    },
+    {
+      "id": 19,
+      "line": 226,
+      "kind": "compare"
+    },
+    {
+      "id": 20,
+      "line": 227,
+      "kind": "return"
+    },
+    {
+      "id": 21,
+      "line": 229,
+      "kind": "return"
+    },
+    {
+      "id": 22,
+      "line": 300,
+      "kind": "boolop"
+    },
+    {
+      "id": 23,
+      "line": 301,
+      "kind": "return"
+    },
+    {
+      "id": 24,
+      "line": 306,
+      "kind": "return"
+    },
+    {
+      "id": 25,
+      "line": 328,
+      "kind": "negate"
+    },
+    {
+      "id": 26,
+      "line": 332,
+      "kind": "negate"
+    },
+    {
+      "id": 27,
+      "line": 168,
+      "kind": "arith"
+    },
+    {
+      "id": 28,
+      "line": 226,
+      "kind": "arith"
+    },
+    {
+      "id": 29,
+      "line": 300,
+      "kind": "not"
+    },
+    {
+      "id": 30,
+      "line": 300,
+      "kind": "compare"
+    },
+    {
+      "id": 31,
+      "line": 304,
+      "kind": "negate"
+    },
+    {
+      "id": 32,
+      "line": 329,
+      "kind": "return"
+    },
+    {
+      "id": 33,
+      "line": 333,
+      "kind": "return"
+    },
+    {
+      "id": 34,
+      "line": 103,
+      "kind": "const"
+    },
+    {
+      "id": 35,
+      "line": 107,
+      "kind": "const"
+    },
+    {
+      "id": 36,
+      "line": 111,
+      "kind": "const"
+    },
+    {
+      "id": 37,
+      "line": 116,
+      "kind": "const"
+    },
+    {
+      "id": 38,
+      "line": 121,
+      "kind": "const"
+    },
+    {
+      "id": 39,
+      "line": 126,
+      "kind": "const"
+    },
+    {
+      "id": 40,
+      "line": 130,
+      "kind": "const"
+    },
+    {
+      "id": 41,
+      "line": 134,
+      "kind": "const"
+    },
+    {
+      "id": 42,
+      "line": 138,
+      "kind": "const"
+    },
+    {
+      "id": 43,
+      "line": 226,
+      "kind": "const"
+    },
+    {
+      "id": 44,
+      "line": 226,
+      "kind": "const"
+    },
+    {
+      "id": 45,
+      "line": 226,
+      "kind": "const"
+    },
+    {
+      "id": 46,
+      "line": 226,
+      "kind": "const"
+    },
+    {
+      "id": 47,
+      "line": 233,
+      "kind": "arith"
+    },
+    {
+      "id": 48,
+      "line": 277,
+      "kind": "arith"
+    },
+    {
+      "id": 49,
+      "line": 305,
+      "kind": "return"
+    },
+    {
+      "id": 50,
+      "line": 328,
+      "kind": "arith"
+    },
+    {
+      "id": 51,
+      "line": 100,
+      "kind": "arith"
+    },
+    {
+      "id": 52,
+      "line": 105,
+      "kind": "arith"
+    },
+    {
+      "id": 53,
+      "line": 109,
+      "kind": "arith"
+    },
+    {
+      "id": 54,
+      "line": 113,
+      "kind": "arith"
+    },
+    {
+      "id": 55,
+      "line": 119,
+      "kind": "arith"
+    },
+    {
+      "id": 56,
+      "line": 124,
+      "kind": "arith"
+    },
+    {
+      "id": 57,
+      "line": 128,
+      "kind": "arith"
+    },
+    {
+      "id": 58,
+      "line": 132,
+      "kind": "arith"
+    },
+    {
+      "id": 59,
+      "line": 136,
+      "kind": "arith"
+    },
+    {
+      "id": 60,
+      "line": 140,
+      "kind": "arith"
+    },
+    {
+      "id": 61,
+      "line": 233,
+      "kind": "const"
+    },
+    {
+      "id": 62,
+      "line": 100,
+      "kind": "arith"
+    },
+    {
+      "id": 63,
+      "line": 102,
+      "kind": "const"
+    },
+    {
+      "id": 64,
+      "line": 102,
+      "kind": "const"
+    },
+    {
+      "id": 65,
+      "line": 168,
+      "kind": "const"
+    },
+    {
+      "id": 66,
+      "line": 230,
+      "kind": "const"
+    },
+    {
+      "id": 67,
+      "line": 231,
+      "kind": "const"
+    },
+    {
+      "id": 68,
+      "line": 232,
+      "kind": "const"
+    },
+    {
+      "id": 69,
+      "line": 100,
+      "kind": "arith"
+    },
+    {
+      "id": 70,
+      "line": 104,
+      "kind": "const"
+    },
+    {
+      "id": 71,
+      "line": 108,
+      "kind": "const"
+    },
+    {
+      "id": 72,
+      "line": 112,
+      "kind": "const"
+    },
+    {
+      "id": 73,
+      "line": 168,
+      "kind": "const"
+    },
+    {
+      "id": 74,
+      "line": 199,
+      "kind": "const"
+    },
+    {
+      "id": 75,
+      "line": 200,
+      "kind": "const"
+    },
+    {
+      "id": 76,
+      "line": 374,
+      "kind": "const"
+    },
+    {
+      "id": 77,
+      "line": 104,
+      "kind": "const"
+    },
+    {
+      "id": 78,
+      "line": 105,
+      "kind": "const"
+    },
+    {
+      "id": 79,
+      "line": 108,
+      "kind": "const"
+    },
+    {
+      "id": 80,
+      "line": 109,
+      "kind": "const"
+    },
+    {
+      "id": 81,
+      "line": 112,
+      "kind": "const"
+    },
+    {
+      "id": 82,
+      "line": 113,
+      "kind": "const"
+    },
+    {
+      "id": 83,
+      "line": 119,
+      "kind": "const"
+    },
+    {
+      "id": 84,
+      "line": 124,
+      "kind": "const"
+    },
+    {
+      "id": 85,
+      "line": 128,
+      "kind": "const"
+    },
+    {
+      "id": 86,
+      "line": 132,
+      "kind": "const"
+    },
+    {
+      "id": 87,
+      "line": 136,
+      "kind": "const"
+    },
+    {
+      "id": 88,
+      "line": 140,
+      "kind": "const"
+    },
+    {
+      "id": 89,
+      "line": 166,
+      "kind": "const"
+    },
+    {
+      "id": 90,
+      "line": 117,
+      "kind": "const"
+    },
+    {
+      "id": 91,
+      "line": 118,
+      "kind": "const"
+    },
+    {
+      "id": 92,
+      "line": 119,
+      "kind": "const"
+    },
+    {
+      "id": 93,
+      "line": 122,
+      "kind": "const"
+    },
+    {
+      "id": 94,
+      "line": 123,
+      "kind": "const"
+    },
+    {
+      "id": 95,
+      "line": 124,
+      "kind": "const"
+    },
+    {
+      "id": 96,
+      "line": 127,
+      "kind": "const"
+    },
+    {
+      "id": 97,
+      "line": 127,
+      "kind": "const"
+    },
+    {
+      "id": 98,
+      "line": 128,
+      "kind": "const"
+    },
+    {
+      "id": 99,
+      "line": 131,
+      "kind": "const"
+    },
+    {
+      "id": 100,
+      "line": 131,
+      "kind": "const"
+    },
+    {
+      "id": 101,
+      "line": 132,
+      "kind": "const"
+    },
+    {
+      "id": 102,
+      "line": 135,
+      "kind": "const"
+    },
+    {
+      "id": 103,
+      "line": 135,
+      "kind": "const"
+    },
+    {
+      "id": 104,
+      "line": 136,
+      "kind": "const"
+    },
+    {
+      "id": 105,
+      "line": 139,
+      "kind": "const"
+    },
+    {
+      "id": 106,
+      "line": 139,
+      "kind": "const"
+    },
+    {
+      "id": 107,
+      "line": 140,
+      "kind": "const"
+    }
+  ],
+  "mode": "guided",
+  "rounds": [
+    {
+      "round": 0,
+      "score": 88.88888888888889,
+      "killed": 96,
+      "survived": 12,
+      "accepted": true,
+      "note": "baseline",
+      "tokens_used": 0,
+      "survivors": [
+        24,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        63,
+        64
+      ],
+      "triaged": []
+    },
+    {
+      "round": 1,
+      "score": 88.88888888888889,
+      "killed": 96,
+      "survived": 12,
+      "accepted": false,
+      "note": "rejected: tests fail on the original code",
+      "tokens_used": 12483,
+      "survivors": [
+        24,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        63,
+        64
+      ],
+      "triaged": [
+        24
+      ]
+    },
+    {
+      "round": 2,
+      "score": 95.37037037037037,
+      "killed": 103,
+      "survived": 5,
+      "accepted": true,
+      "note": "accepted: score improved (3 failing test(s) dropped)",
+      "tokens_used": 15252,
+      "survivors": [
+        24,
+        34,
+        36,
+        37,
+        41
+      ],
+      "triaged": [
+        24
+      ]
+    },
+    {
+      "round": 3,
+      "score": 95.37037037037037,
+      "killed": 103,
+      "survived": 5,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 11479,
+      "survivors": [
+        24,
+        34,
+        36,
+        37,
+        41
+      ],
+      "triaged": [
+        24
+      ]
+    }
+  ],
+  "models": {
+    "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "strong": "nvidia/nemotron-3-super-120b-a12b"
+  }
+}

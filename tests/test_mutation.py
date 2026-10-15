@@ -21,7 +21,39 @@ SRC = (
 
 def test_generates_every_operator_kind():
     kinds = {m.kind for m in generate_mutants(SRC)}
-    assert kinds == {"compare", "arith", "boolop", "not", "const"}
+    assert kinds == {"compare", "arith", "boolop", "not", "const", "negate", "return"}
+
+
+def _mutated_behaviour(source: str, kind: str, call):
+    """Run `call(namespace)` against every mutant of the given kind."""
+    results = []
+    for mutant in generate_mutants(source):
+        if mutant.kind == kind:
+            namespace: dict = {}
+            exec(mutant.source, namespace)
+            results.append(call(namespace))
+    return results
+
+
+def test_membership_identity_and_augassign_are_mutated():
+    assert _mutated_behaviour(
+        "def f(x, xs):\n    return x in xs\n", "compare", lambda ns: ns["f"](1, [1])
+    ) == [False]
+    assert _mutated_behaviour(
+        "def f(x):\n    return x is None\n", "compare", lambda ns: ns["f"](None)
+    ) == [False]
+
+    def total(ns):
+        return ns["f"](5)
+
+    assert _mutated_behaviour("def f(x):\n    x += 2\n    return x\n", "arith", total) == [3]
+
+
+def test_negate_and_return_mutations_change_behaviour():
+    src = "def f(x):\n    if x:\n        return 1\n    return 2\n"
+    assert _mutated_behaviour(src, "negate", lambda ns: ns["f"](True)) == [2]
+    returns = _mutated_behaviour(src, "return", lambda ns: (ns["f"](True), ns["f"](False)))
+    assert sorted(map(str, returns)) == ["(1, None)", "(None, 2)"]
 
 
 def test_mutants_are_valid_distinct_and_deterministic():

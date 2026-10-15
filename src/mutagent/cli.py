@@ -50,6 +50,18 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--report", default="mutagent_report.json")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
 
+    p = sub.add_parser(
+        "baseline",
+        help="comparison baseline: the same loop and model, but never told which mutants survive",
+    )
+    common(p)
+    tests_opt(p)
+    p.add_argument("--rounds", type=int, default=3)
+    p.add_argument("--budget", type=int, help="token cap; overrides NEBIUS_TOKEN_BUDGET")
+    p.add_argument("--test-timeout", type=float, default=20.0)
+    p.add_argument("--report", default="mutagent_baseline_report.json")
+    p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
+
     p = sub.add_parser("serve", help="start the web demo (needs: pip install -e \".[web]\")")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
@@ -95,7 +107,8 @@ def main(argv: list[str] | None = None) -> int:
             llm,
             max_rounds=args.rounds,
             test_timeout=args.test_timeout,
-            triage=args.triage,
+            triage=args.triage if args.cmd == "run" else False,
+            guided=args.cmd == "run",
             write_back=not args.no_write_back,
             tests=args.tests,
         )

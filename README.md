@@ -29,7 +29,9 @@ LLM-generated tests often pass without testing anything. Coverage and "number of
   (2) strictly raise the score  <---------------------- /
 ```
 
-- **Two model tiers on purpose.** `STRONG` (a larger Nemotron model) writes tests. `FAST` (a small Nemotron model) optionally triages survivors that look semantically equivalent, so tokens are not wasted on unkillable mutants (`--triage`).
+- **Planted bugs:** flipped comparisons (`<`/`<=`, `==`/`!=`, `in`/`not in`, `is`/`is not`), swapped arithmetic (also `+=`), `and`/`or` swaps, removed `not`, negated `if` conditions, `return x` replaced by `return None`, and bumped integer / flipped boolean constants.
+- **Two model tiers on purpose.** `STRONG` (a larger Nemotron model) writes tests. `FAST` (a small Nemotron model) optionally triages survivors that look semantically equivalent, so tokens are not wasted on unkillable mutants (`--triage`). Triage only changes what the STRONG model is shown; the score still counts every bug.
+- **A comparison baseline.** `mutagent baseline` runs the same loop with the same model and the same acceptance rule, but never shows the model which bugs survive. The difference between the two scores is what the survivor feedback adds.
 - **Hard token budget** per run (`NEBIUS_TOKEN_BUDGET`), so a public demo cannot drain credits.
 - **Honest acceptance rule.** Tests that fail on the original code, or that do not improve the score, are rolled back. The failure output is fed into the next prompt.
 
@@ -53,8 +55,11 @@ cp .env.example .env        # fill in the key, base URL and model IDs from the T
 # 1. no model needed: score the demo project's deliberately weak tests
 mutagent score --project examples/demo_project --target pricing.py
 
-# 2. run the agent (uses Token Factory, up to --rounds rounds)
-mutagent run --project examples/demo_project --target pricing.py --rounds 4
+# 2. run the agent (uses Token Factory, up to --rounds rounds); --triage uses the small FAST model too
+mutagent run --project examples/demo_project --target pricing.py --rounds 4 --triage
+
+# 3. the comparison baseline: same loop and model, no bug feedback
+mutagent baseline --project examples/demo_project --target pricing.py
 ```
 
 Other commands: `mutagent mutants ...` lists the mutants for a module without running anything. `python -m pytest` runs this repo's own tests, which use a fake model and need no API key.
@@ -72,20 +77,25 @@ mutagent score --project path/to/lib --target src/pkg/mod.py --tests tests/test_
 
 ### Targets measured so far
 
-Baseline mutation score of each project's *own* tests, before the agent does anything (measured once, in a cloud Linux container; timings vary by machine). These are not agent results.
+Baseline mutation score of each project's *own* tests, before the agent does anything (measured once with the current set of planted bugs, in a cloud Linux container; timings vary by machine). These are not agent results.
 
 | Target (MIT-licensed) | Mutants | Baseline score | One scoring pass |
 |---|---|---|---|
-| cachetools `func.py` | 22 | 72.7% | ~8 s |
-| humanize `number.py` | 140 | 86.4% | ~70 s |
-| humanize `filesize.py` | 24 | 95.8% | ~10 s |
-| humanize `lists.py` | 12 | 91.7% | ~4 s |
-| cachetools `keys.py` | 4 | 100% | ~2 s |
+| `examples/demo_project/pricing.py` (toy) | 37 | 37.8% | ~5 s |
+| cachetools `func.py` | 55 | 89.1% | ~19 s |
+| python-slugify `slugify.py` (two of its test files) | 118 | 54.2% | ~53 s |
+| inflection `__init__.py` | 108 | 88.9% | ~57 s |
+| humanize `filesize.py` | 36 | 97.2% | ~14 s |
+| humanize `lists.py` | 20 | 90.0% | ~8 s |
+| humanize `time.py` | 366 | 89.6% | ~6 min |
+| cachetools `keys.py` | 19 | 94.7% | ~5 s |
 
-An unmodified copy of cachetools (MIT) is vendored in `examples/cachetools_demo/` so the demo runs out of the box; see its `VENDORED.md` for the source commit and license:
+Unmodified copies of cachetools, inflection and python-slugify (all MIT) are vendored in `examples/` so the demo runs out of the box; each folder has a `VENDORED.md` with the source and license. The humanize rows were measured on a separate checkout and are not shipped.
 
 ```bash
 mutagent score --project examples/cachetools_demo --target src/cachetools/func.py --tests tests/test_func.py
+mutagent score --project examples/inflection_demo --target inflection/__init__.py --tests test_inflection.py
+mutagent score --project examples/slugify_demo --target slugify/slugify.py --tests tests/test_legacy.py tests/test_modern_word_boundary.py
 ```
 
 The generated tests are written to `tests/test_mutagent_generated.py` inside the target project, and a JSON report (score per round, tokens used) to `mutagent_report.json`.
@@ -99,25 +109,27 @@ mutagent serve            # http://127.0.0.1:8000
 
 The page shows every planted bug as a circle (hollow = slipped through, filled = caught by a test), the score after each round, and the tests the agent kept.
 
-- **Recorded run:** plays back a real run from `replays/<preset>.json`. Record one with the commands in `replays/README.md`. Recordings come from real runs only.
+- **Recorded run:** plays back a real run from `replays/<preset>.json`, next to the no-feedback comparison from `replays/<preset>-baseline.json` when it exists. Record them with `python scripts/record.py` (see `replays/README.md`). Recordings come from real runs only.
 - **Live run:** starts a capped run against the model. It switches on only when the `NEBIUS_*` values from `.env.example` are set; otherwise the page offers recordings only.
-- **Presets only:** visitors pick one of the fixed libraries in `src/mutagent/presets.py`. They never upload code or write prompts.
+- **Presets only:** visitors pick one of the fixed libraries in `src/mutagent/presets.py`. They never upload code or write prompts. Libraries that take about a minute per scoring pass are recording-only.
 - **Limits (see `.env.example`):** one live run at a time, a token budget per run, a cap on live runs per day.
 
 Container image (deployed on Render; the Dockerfile listens on `$PORT`, default 8000): `docker build -t mutagent .`, then `docker run -p 8000:8000 --env-file .env mutagent`. It runs as an unprivileged user with `MUTAGENT_LIMITS=1`.
 
 ## Results
 
-Real runs against Nebius Token Factory (Nemotron 3 Super as the STRONG model), 3 rounds at most. Both runs are recorded in `replays/` and play back in the web demo.
+Real runs against Nebius Token Factory (NVIDIA Nemotron models), 3 rounds at most. Each row compares the survivor-guided agent with the baseline run (same loop, same model, no bug feedback). Recorded in `replays/` and playable in the web demo.
 
-| Target | Score before | Score after | Rounds | Tokens |
-|---|---|---|---|---|
-| cachetools `func.py` (22 mutants) | 72.7% | 100.0% | 1 | 6,608 |
-| `examples/demo_project/pricing.py` (29 mutants) | 24.1% | 96.6% | 3 | 9,745 |
+| Target | Mutants | Score before | No bug feedback (same model) | Agent (guided) | Rounds | Tokens (agent) |
+|---|---|---|---|---|---|---|
+| `examples/demo_project/pricing.py` | 37 | 37.8% | 94.6% (6,241 tokens) | 91.9% | 3 | 17,451 |
+| cachetools `func.py` | 55 | 89.1% | 96.4% (27,928 tokens) | 98.2% | 3 | 23,130 |
+| python-slugify `slugify.py` | 118 | 54.2% | 74.6% (41,841 tokens) | 88.1% | 3 | 64,871 |
+| inflection `__init__.py` | 108 | 88.9% | 88.9% (53,362 tokens) | 95.4% | 3 | 39,214 |
 
-The remaining pricing mutant survives because it is equivalent: changing `<= 5` to `< 5` gives the same result at exactly 5 kg, so no test can tell them apart.
+The guided agent beat the baseline on three of four targets (cachetools +1.8 points, inflection +6.5, slugify +13.5). On the small pricing module the baseline won (94.6% vs 91.9%) and used far fewer tokens. Each number is one run of a non-deterministic model, so treat gaps of a few points as noise. The mutants that stay alive are mostly equivalent or hard to reach; I did not verify each one by hand. The baseline on inflection failed because the model invented an import that does not exist, which is a real weakness of working without seeing the code's surroundings.
 
-Failures I hit while getting these runs, and what changed:
+Failures I hit while getting the first runs working, and what changed:
 
 - The reasoning model spent its whole reply budget thinking and returned no code. Fixes: a higher reply limit (`NEBIUS_MAX_TOKENS`), a stricter prompt, and an option to switch thinking off (`NEBIUS_EXTRA_BODY`).
 - One wrong expectation made the agent reject a whole file of otherwise good tests. It now removes only the failing test functions and re-checks the rest.

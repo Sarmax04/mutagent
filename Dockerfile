@@ -10,7 +10,7 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY examples ./examples
 COPY replays ./replays
-RUN pip install --no-cache-dir -e ".[web]" pytest
+RUN pip install --no-cache-dir -e ".[web,examples]" pytest
 
 # run as an unprivileged user; the app never needs to write outside temp folders
 RUN useradd --create-home runner

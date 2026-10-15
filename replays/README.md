@@ -1,20 +1,24 @@
 # Recorded runs
 
-The hosted demo's "Recorded run" mode plays back JSON reports from this folder, one file per preset:
+The hosted demo's "Recorded run" mode plays back JSON reports from this folder, one file per preset, plus an optional comparison file:
 
-| Preset | File |
-|---|---|
-| cachetools: func.py | `cachetools-func.json` |
-| Toy pricing module | `pricing-toy.json` |
+| Preset | Agent run | No-feedback comparison |
+|---|---|---|
+| cachetools: func.py | `cachetools-func.json` | `cachetools-func-baseline.json` |
+| Toy pricing module | `pricing-toy.json` | `pricing-toy-baseline.json` |
+| inflection: word forms | `inflection.json` | `inflection-baseline.json` |
+| python-slugify: slugs | `slugify.json` | `slugify-baseline.json` |
 
-Record one from a **real** run (never hand-edit a recording or fill it from a fake model, because judges will read it as evidence):
+The baseline file is the comparison: the same loop, model and acceptance rule, but the model is never told which bugs the current tests miss. The page shows both scores side by side.
+
+Record everything from **real** runs (never hand-edit a recording or fill it from a fake model, because judges will read it as evidence):
 
 ```bash
-mutagent run --project examples/cachetools_demo --target src/cachetools/func.py \
-  --tests tests/test_func.py --rounds 3 --report replays/cachetools-func.json
-
-mutagent run --project examples/demo_project --target pricing.py \
-  --rounds 3 --report replays/pricing-toy.json
+python scripts/record.py                  # all four presets, agent run + baseline
+python scripts/record.py cachetools-func  # just one preset
+python scripts/record.py --no-triage      # do not use the small FAST model
 ```
 
-Each report holds the score per round, which planted bugs were still alive after each round, the tests the agent kept, token counts and the model names.
+Run it from the repository root with `.env` filled in. The slow presets (`inflection`, `slugify`) take several minutes because every round re-scores more than a hundred planted bugs.
+
+Each report holds the score per round, which planted bugs were still alive after each round, the tests the agent kept, token counts, the bugs the small model set aside as unkillable (when triage ran) and the model names.

@@ -99,7 +99,7 @@ def test_live_run_end_to_end(tiny):
     assert run["status"] == "done", run
     assert run["rounds_requested"] == 2  # clamped to the server limit
     scores = [r["score"] for r in run["rounds"]]
-    assert scores[0] == 50.0 and scores[-1] == 100.0
+    assert scores[0] == pytest.approx(66.67, abs=0.1) and scores[-1] == 100.0
     assert run["rounds"][-1]["survivors"] == []
     assert "def test_inc_exact" in run["report"]["generated_code"]
     assert run["report"]["mutants"] and run["log"]
@@ -112,7 +112,7 @@ def test_screened_code_is_rejected_in_a_live_run(tiny):
     client = make_client(lambda: ScriptedModel(reply), max_rounds=1)
     run = wait_done(client, client.post("/api/runs", json={"preset": "tiny"}).json()["id"])
     assert run["rounds"][-1]["note"].startswith("rejected: not allowed")
-    assert run["rounds"][-1]["score"] == 50.0
+    assert run["rounds"][-1]["score"] == pytest.approx(66.67, abs=0.1)
 
 
 def test_live_off_returns_503(tiny):
@@ -168,3 +168,28 @@ def test_replay_is_served_when_a_recording_exists(tiny):
     assert client.get("/api/replay/tiny").json()["report"] == recording
     (tiny / "replays" / "tiny.json").write_text("{not json")
     assert client.get("/api/replay/tiny").status_code == 500
+
+
+def test_recording_only_presets_refuse_live_runs(tiny, monkeypatch):
+    from dataclasses import replace
+
+    slow = replace(TINY, live=False)
+    monkeypatch.setattr(web, "get_preset", lambda pid: slow if pid == "tiny" else None)
+    monkeypatch.setattr(web, "PRESETS", (slow,))
+    client = make_client(factory=lambda: ScriptedModel("x"))
+    listed = client.get("/api/presets").json()
+    assert listed[0]["live"] is False
+    assert client.post("/api/runs", json={"preset": "tiny"}).status_code == 503
+
+
+def test_real_presets_pass_their_own_tests():
+    from mutagent.mutation import run_tests, copy_project
+    import shutil
+
+    for preset in PRESETS:
+        work = copy_project(project_path(preset))
+        try:
+            result = run_tests(work, 60, preset.tests)
+            assert result.passed, (preset.id, result.output)
+        finally:
+            shutil.rmtree(work.parent, ignore_errors=True)

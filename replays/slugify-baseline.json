@@ -1,0 +1,832 @@
+{
+  "target": "slugify/slugify.py",
+  "mutant_count": 118,
+  "initial_score": 54.23728813559322,
+  "final_score": 74.57627118644068,
+  "tokens_used": 41841,
+  "generated_path": null,
+  "generated_code": "import pytest\nfrom slugify.slugify import slugify\n\n# === Argument type validation (modern only) ===\ndef test_modern_max_length_type_error_bool():\n    with pytest.raises(TypeError, match=\"max_length must be an int, not bool\"):\n        slugify(\"test\", max_length=True, algorithm=\"modern\")\n\ndef test_modern_max_length_type_error_float():\n    with pytest.raises(TypeError, match=\"max_length must be an int, not float\"):\n        slugify(\"test\", max_length=1.5, algorithm=\"modern\")\n\ndef test_modern_max_length_type_error_str():\n    with pytest.raises(TypeError, match=\"max_length must be an int, not str\"):\n        slugify(\"test\", max_length=\"5\", algorithm=\"modern\")\n\ndef test_modern_separator_type_error_int():\n    with pytest.raises(TypeError, match=\"separator must be str, not int\"):\n        slugify(\"a b\", separator=1, algorithm=\"modern\")\n\ndef test_modern_separator_type_error_list():\n    with pytest.raises(TypeError, match=\"separator must be str, not list\"):\n        slugify(\"a b\", separator=[\"-\"], algorithm=\"modern\")\n\ndef test_modern_invalid_backend_value_error():\n    with pytest.raises(ValueError, match=\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\"):\n        slugify(\"test\", backend=\"unknown\", algorithm=\"modern\")\n\ndef test_modern_invalid_algorithm_value_error():\n    with pytest.raises(ValueError, match=\"algorithm must be 'legacy' or 'modern'\"):\n        slugify(\"test\", algorithm=\"invalid\")\n\ndef test_modern_invalid_replacement_stage_value_error():\n    with pytest.raises(ValueError, match=\"replacement_stage must be 'both', 'pre' or 'post'\"):\n        slugify(\"test\", replacement_stage=\"invalid\", algorithm=\"modern\")\n\ndef test_modern_text_type_error_int():\n    with pytest.raises(TypeError, match=\"text must be str, bytes or bytearray, not int\"):\n        slugify(123, algorithm=\"modern\")\n\ndef test_modern_text_type_error_list():\n    with pytest.raises(TypeError, match=\"text must be str, bytes or bytearray, not list\"):\n        slugify([\"a\"], algorithm=\"modern\")\n\ndef test_modern_invalid_bytes_decode_fallback_to_empty():\n    assert slugify(b\"\\xff\\xfe\\xfd\", algorithm=\"modern\") == \"\"\n\ndef test_modern_valid_bytes_utf8():\n    assert slugify(\"caf\u00e9\".encode(\"utf-8\"), algorithm=\"modern\") == \"cafe\"\n\ndef test_modern_zero_max_length_no_effect():\n    assert slugify(\"a-b-c\", max_length=0, algorithm=\"modern\") == \"a-b-c\"\n    assert slugify(\"\", max_length=0, algorithm=\"modern\") == \"\"\n\ndef test_modern_negative_max_length_like_zero():\n    assert slugify(\"a-b-c\", max_length=-1, algorithm=\"modern\") == \"a-b-c\"\n    assert slugify(\"\", max_length=-5, algorithm=\"modern\") == \"\"\n\n\n\ndef test_modern_word_boundary_respects_limit_and_no_partial_words():\n    assert slugify(\"hello world\", max_length=5, word_boundary=True, algorithm=\"modern\") == \"hello\"\n    assert slugify(\"hello world\", max_length=6, word_boundary=True, algorithm=\"modern\") == \"hello\"\n    assert slugify(\"hello world\", max_length=11, word_boundary=True, algorithm=\"modern\") == \"hello-world\"\n    assert slugify(\"hello world\", max_length=10, word_boundary=True, algorithm=\"modern\") == \"hello\"\n\ndef test_modern_word_boundary_first_word_too_long_is_dropped():\n    assert slugify(\"xxxxx y\", max_length=4, word_boundary=True, algorithm=\"modern\") == \"y\"\n    assert slugify(\"xxxxx y z\", max_length=4, word_boundary=True, algorithm=\"modern\") == \"y-z\"\n\n\n\ndef test_modern_stopword_removed_preserves_order_and_separators():\n    assert slugify(\"the quick brown fox\", stopwords=[\"the\"], algorithm=\"modern\") == \"quick-brown-fox\"\n    assert slugify(\"the the quick\", stopwords=[\"the\"], algorithm=\"modern\") == \"quick\"\n    assert slugify(\"---the---\", stopwords=[\"the\"], algorithm=\"modern\") == \"\"\n\ndef test_modern_stopword_case_sensitive_when_lowercase_false():\n    assert slugify(\"The THE the\", stopwords=[\"The\"], lowercase=False, algorithm=\"modern\") == \"THE-the\"\n    assert slugify(\"The THE the\", stopwords=[\"the\"], lowercase=False, algorithm=\"modern\") == \"The-THE\"\n\n\n\n\ndef test_modern_regex_pattern_overrides_default():\n    assert slugify(\"a1b2c3\", regex_pattern=r\"\\d\", algorithm=\"modern\") == \"a-b-c\"\n    assert slugify(\"a_b_c\", regex_pattern=r\"_\", algorithm=\"modern\") == \"a-b-c\"\n    assert slugify(\"test\", regex_pattern=r\"xyz\", algorithm=\"modern\") == \"test\"\n\ndef test_modern_disallowed_chars_pattern_used_by_default():\n    assert slugify(\"a b c\", algorithm=\"modern\") == \"a-b-c\"\n    assert slugify(\"a__b\", algorithm=\"modern\") == \"a-b\"\n    assert slugify(\"a!!b\", algorithm=\"modern\") == \"a-b\"\n\n\n\n\n\ndef test_modern_quote_pattern_apostrophe_to_dash():\n    assert slugify(\"don't\", algorithm=\"modern\") == \"don-t\"\n    assert slugify(\"rock'n'roll\", algorithm=\"modern\") == \"rock-n-roll\"\n    assert slugify(\"''hello''\", algorithm=\"modern\") == \"hello\"\n\ndef test_modern_numbers_pattern_removes_commas_between_digits():\n    assert slugify(\"1,000,000\", algorithm=\"modern\") == \"1000000\"\n    assert slugify(\"10,000 cars\", algorithm=\"modern\") == \"10000-cars\"\n    assert slugify(\"1, 000\", algorithm=\"modern\") == \"1-000\"\n\ndef test_modern_duplicate_dash_collapsed_and_stripped():\n    assert slugify(\"a--b\", algorithm=\"modern\") == \"a-b\"\n    assert slugify(\"---a---b---\", algorithm=\"modern\") == \"a-b\"\n    assert slugify(\"\", algorithm=\"modern\") == \"\"\n    assert slugify(\"---\", algorithm=\"modern\") == \"\"\n\ndef test_modern_separator_applied_after_internal_processing():\n    assert slugify(\"a b\", separator=\"_\", algorithm=\"modern\") == \"a_b\"\n    assert slugify(\"a--b\", separator=\"_\", algorithm=\"modern\") == \"a_b\"\n    assert slugify(\"a b c\", separator=\"__\", algorithm=\"modern\") == \"a__b__c\"\n\ndef test_modern_multi_character_separator_length_counted_correctly():\n    assert slugify(\"a b\", separator=\"__\", max_length=3, algorithm=\"modern\") == \"a\"\n    assert slugify(\"a b\", separator=\"__\", max_length=4, algorithm=\"modern\") == \"a__b\"\n    assert slugify(\"a--b\", separator=\"__\", max_length=4, algorithm=\"modern\") == \"a__b\"\n\n\ndef test_modern_allow_unicode_false_transliterates_via_backend():\n    assert slugify(\"caf\u00e9\", allow_unicode=False, algorithm=\"modern\") == \"cafe\"\n    assert slugify(\"\u00f1and\u00fa\", allow_unicode=False, algorithm=\"modern\") == \"nandu\"\n\ndef test_modern_backend_auto_prefers_unidecode_if_available(monkeypatch):\n    class FakeUniDecode:\n        @staticmethod\n        def unidecode(text):\n            return \"uni\"\n    monkeypatch.setitem(__import__('sys').modules, 'unidecode', FakeUniDecode)\n    assert slugify(\"\u00e7\", algorithm=\"modern\") == \"uni\"\n\ndef test_modern_backend_auto_falls_back_to_text_unidecode_if_unidecode_missing(monkeypatch):\n    monkeypatch.delitem(__import__('sys').modules, 'unidecode', raising=False)\n    class FakeTextUniDecode:\n        @staticmethod\n        def unidecode(text):\n            return \"textuni\"\n    monkeypatch.setitem(__import__('sys').modules, 'text_unidecode', FakeTextUniDecode)\n    assert slugify(\"\u00e7\", algorithm=\"modern\") == \"textuni\"\n",
+  "mutants": [
+    {
+      "id": 0,
+      "line": 42,
+      "kind": "negate"
+    },
+    {
+      "id": 1,
+      "line": 44,
+      "kind": "negate"
+    },
+    {
+      "id": 2,
+      "line": 46,
+      "kind": "negate"
+    },
+    {
+      "id": 3,
+      "line": 48,
+      "kind": "return"
+    },
+    {
+      "id": 4,
+      "line": 53,
+      "kind": "negate"
+    },
+    {
+      "id": 5,
+      "line": 55,
+      "kind": "negate"
+    },
+    {
+      "id": 6,
+      "line": 66,
+      "kind": "return"
+    },
+    {
+      "id": 7,
+      "line": 75,
+      "kind": "negate"
+    },
+    {
+      "id": 8,
+      "line": 78,
+      "kind": "negate"
+    },
+    {
+      "id": 9,
+      "line": 81,
+      "kind": "negate"
+    },
+    {
+      "id": 10,
+      "line": 119,
+      "kind": "return"
+    },
+    {
+      "id": 11,
+      "line": 141,
+      "kind": "negate"
+    },
+    {
+      "id": 12,
+      "line": 143,
+      "kind": "negate"
+    },
+    {
+      "id": 13,
+      "line": 145,
+      "kind": "negate"
+    },
+    {
+      "id": 14,
+      "line": 149,
+      "kind": "negate"
+    },
+    {
+      "id": 15,
+      "line": 151,
+      "kind": "negate"
+    },
+    {
+      "id": 16,
+      "line": 156,
+      "kind": "negate"
+    },
+    {
+      "id": 17,
+      "line": 162,
+      "kind": "negate"
+    },
+    {
+      "id": 18,
+      "line": 167,
+      "kind": "negate"
+    },
+    {
+      "id": 19,
+      "line": 175,
+      "kind": "negate"
+    },
+    {
+      "id": 20,
+      "line": 178,
+      "kind": "negate"
+    },
+    {
+      "id": 21,
+      "line": 182,
+      "kind": "return"
+    },
+    {
+      "id": 22,
+      "line": 218,
+      "kind": "negate"
+    },
+    {
+      "id": 23,
+      "line": 220,
+      "kind": "negate"
+    },
+    {
+      "id": 24,
+      "line": 226,
+      "kind": "return"
+    },
+    {
+      "id": 25,
+      "line": 15,
+      "kind": "arith"
+    },
+    {
+      "id": 26,
+      "line": 34,
+      "kind": "negate"
+    },
+    {
+      "id": 27,
+      "line": 36,
+      "kind": "return"
+    },
+    {
+      "id": 28,
+      "line": 54,
+      "kind": "return"
+    },
+    {
+      "id": 29,
+      "line": 55,
+      "kind": "compare"
+    },
+    {
+      "id": 30,
+      "line": 75,
+      "kind": "compare"
+    },
+    {
+      "id": 31,
+      "line": 76,
+      "kind": "return"
+    },
+    {
+      "id": 32,
+      "line": 77,
+      "kind": "arith"
+    },
+    {
+      "id": 33,
+      "line": 78,
+      "kind": "compare"
+    },
+    {
+      "id": 34,
+      "line": 79,
+      "kind": "return"
+    },
+    {
+      "id": 35,
+      "line": 100,
+      "kind": "negate"
+    },
+    {
+      "id": 36,
+      "line": 104,
+      "kind": "const"
+    },
+    {
+      "id": 37,
+      "line": 105,
+      "kind": "const"
+    },
+    {
+      "id": 38,
+      "line": 107,
+      "kind": "negate"
+    },
+    {
+      "id": 39,
+      "line": 112,
+      "kind": "negate"
+    },
+    {
+      "id": 40,
+      "line": 115,
+      "kind": "arith"
+    },
+    {
+      "id": 41,
+      "line": 117,
+      "kind": "negate"
+    },
+    {
+      "id": 42,
+      "line": 141,
+      "kind": "boolop"
+    },
+    {
+      "id": 43,
+      "line": 143,
+      "kind": "not"
+    },
+    {
+      "id": 44,
+      "line": 145,
+      "kind": "not"
+    },
+    {
+      "id": 45,
+      "line": 146,
+      "kind": "negate"
+    },
+    {
+      "id": 46,
+      "line": 149,
+      "kind": "compare"
+    },
+    {
+      "id": 47,
+      "line": 151,
+      "kind": "compare"
+    },
+    {
+      "id": 48,
+      "line": 155,
+      "kind": "negate"
+    },
+    {
+      "id": 49,
+      "line": 156,
+      "kind": "boolop"
+    },
+    {
+      "id": 50,
+      "line": 171,
+      "kind": "boolop"
+    },
+    {
+      "id": 51,
+      "line": 178,
+      "kind": "boolop"
+    },
+    {
+      "id": 52,
+      "line": 187,
+      "kind": "const"
+    },
+    {
+      "id": 53,
+      "line": 188,
+      "kind": "const"
+    },
+    {
+      "id": 54,
+      "line": 189,
+      "kind": "const"
+    },
+    {
+      "id": 55,
+      "line": 190,
+      "kind": "const"
+    },
+    {
+      "id": 56,
+      "line": 191,
+      "kind": "const"
+    },
+    {
+      "id": 57,
+      "line": 193,
+      "kind": "const"
+    },
+    {
+      "id": 58,
+      "line": 196,
+      "kind": "const"
+    },
+    {
+      "id": 59,
+      "line": 198,
+      "kind": "const"
+    },
+    {
+      "id": 60,
+      "line": 218,
+      "kind": "compare"
+    },
+    {
+      "id": 61,
+      "line": 220,
+      "kind": "compare"
+    },
+    {
+      "id": 62,
+      "line": 221,
+      "kind": "return"
+    },
+    {
+      "id": 63,
+      "line": 34,
+      "kind": "compare"
+    },
+    {
+      "id": 64,
+      "line": 34,
+      "kind": "compare"
+    },
+    {
+      "id": 65,
+      "line": 35,
+      "kind": "return"
+    },
+    {
+      "id": 66,
+      "line": 38,
+      "kind": "return"
+    },
+    {
+      "id": 67,
+      "line": 75,
+      "kind": "const"
+    },
+    {
+      "id": 68,
+      "line": 77,
+      "kind": "arith"
+    },
+    {
+      "id": 69,
+      "line": 83,
+      "kind": "const"
+    },
+    {
+      "id": 70,
+      "line": 84,
+      "kind": "const"
+    },
+    {
+      "id": 71,
+      "line": 85,
+      "kind": "const"
+    },
+    {
+      "id": 72,
+      "line": 87,
+      "kind": "negate"
+    },
+    {
+      "id": 73,
+      "line": 95,
+      "kind": "negate"
+    },
+    {
+      "id": 74,
+      "line": 101,
+      "kind": "return"
+    },
+    {
+      "id": 75,
+      "line": 107,
+      "kind": "not"
+    },
+    {
+      "id": 76,
+      "line": 110,
+      "kind": "arith"
+    },
+    {
+      "id": 77,
+      "line": 111,
+      "kind": "arith"
+    },
+    {
+      "id": 78,
+      "line": 112,
+      "kind": "compare"
+    },
+    {
+      "id": 79,
+      "line": 115,
+      "kind": "arith"
+    },
+    {
+      "id": 80,
+      "line": 117,
+      "kind": "compare"
+    },
+    {
+      "id": 81,
+      "line": 141,
+      "kind": "not"
+    },
+    {
+      "id": 82,
+      "line": 146,
+      "kind": "not"
+    },
+    {
+      "id": 83,
+      "line": 156,
+      "kind": "compare"
+    },
+    {
+      "id": 84,
+      "line": 166,
+      "kind": "negate"
+    },
+    {
+      "id": 85,
+      "line": 171,
+      "kind": "negate"
+    },
+    {
+      "id": 86,
+      "line": 178,
+      "kind": "compare"
+    },
+    {
+      "id": 87,
+      "line": 34,
+      "kind": "const"
+    },
+    {
+      "id": 88,
+      "line": 34,
+      "kind": "const"
+    },
+    {
+      "id": 89,
+      "line": 59,
+      "kind": "negate"
+    },
+    {
+      "id": 90,
+      "line": 65,
+      "kind": "negate"
+    },
+    {
+      "id": 91,
+      "line": 77,
+      "kind": "arith"
+    },
+    {
+      "id": 92,
+      "line": 87,
+      "kind": "not"
+    },
+    {
+      "id": 93,
+      "line": 91,
+      "kind": "negate"
+    },
+    {
+      "id": 94,
+      "line": 93,
+      "kind": "const"
+    },
+    {
+      "id": 95,
+      "line": 94,
+      "kind": "arith"
+    },
+    {
+      "id": 96,
+      "line": 95,
+      "kind": "compare"
+    },
+    {
+      "id": 97,
+      "line": 98,
+      "kind": "negate"
+    },
+    {
+      "id": 98,
+      "line": 110,
+      "kind": "arith"
+    },
+    {
+      "id": 99,
+      "line": 111,
+      "kind": "arith"
+    },
+    {
+      "id": 100,
+      "line": 112,
+      "kind": "const"
+    },
+    {
+      "id": 101,
+      "line": 114,
+      "kind": "arith"
+    },
+    {
+      "id": 102,
+      "line": 176,
+      "kind": "negate"
+    },
+    {
+      "id": 103,
+      "line": 33,
+      "kind": "const"
+    },
+    {
+      "id": 104,
+      "line": 35,
+      "kind": "const"
+    },
+    {
+      "id": 105,
+      "line": 38,
+      "kind": "const"
+    },
+    {
+      "id": 106,
+      "line": 59,
+      "kind": "compare"
+    },
+    {
+      "id": 107,
+      "line": 65,
+      "kind": "compare"
+    },
+    {
+      "id": 108,
+      "line": 77,
+      "kind": "const"
+    },
+    {
+      "id": 109,
+      "line": 91,
+      "kind": "boolop"
+    },
+    {
+      "id": 110,
+      "line": 91,
+      "kind": "arith"
+    },
+    {
+      "id": 111,
+      "line": 94,
+      "kind": "arith"
+    },
+    {
+      "id": 112,
+      "line": 45,
+      "kind": "const"
+    },
+    {
+      "id": 113,
+      "line": 47,
+      "kind": "const"
+    },
+    {
+      "id": 114,
+      "line": 91,
+      "kind": "arith"
+    },
+    {
+      "id": 115,
+      "line": 96,
+      "kind": "arith"
+    },
+    {
+      "id": 116,
+      "line": 177,
+      "kind": "compare"
+    },
+    {
+      "id": 117,
+      "line": 43,
+      "kind": "const"
+    }
+  ],
+  "mode": "baseline",
+  "rounds": [
+    {
+      "round": 0,
+      "score": 54.23728813559322,
+      "killed": 64,
+      "survived": 54,
+      "accepted": true,
+      "note": "baseline",
+      "tokens_used": 0,
+      "survivors": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        17,
+        18,
+        19,
+        26,
+        27,
+        29,
+        30,
+        31,
+        33,
+        34,
+        37,
+        40,
+        41,
+        42,
+        45,
+        51,
+        53,
+        54,
+        63,
+        64,
+        65,
+        66,
+        67,
+        77,
+        78,
+        79,
+        80,
+        82,
+        84,
+        85,
+        87,
+        88,
+        89,
+        90,
+        91,
+        98,
+        99,
+        100,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        112,
+        113,
+        116,
+        117
+      ],
+      "triaged": []
+    },
+    {
+      "round": 1,
+      "score": 58.47457627118644,
+      "killed": 69,
+      "survived": 49,
+      "accepted": true,
+      "note": "accepted: score improved (10 failing test(s) dropped) (after one repair)",
+      "tokens_used": 20131,
+      "survivors": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        17,
+        18,
+        19,
+        26,
+        27,
+        29,
+        33,
+        34,
+        37,
+        40,
+        41,
+        51,
+        53,
+        54,
+        63,
+        64,
+        65,
+        66,
+        67,
+        77,
+        78,
+        79,
+        80,
+        84,
+        85,
+        87,
+        88,
+        89,
+        90,
+        91,
+        98,
+        99,
+        100,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        112,
+        113,
+        116,
+        117
+      ],
+      "triaged": []
+    },
+    {
+      "round": 2,
+      "score": 63.559322033898304,
+      "killed": 75,
+      "survived": 43,
+      "accepted": true,
+      "note": "accepted: score improved (5 failing test(s) dropped) (after one repair)",
+      "tokens_used": 13791,
+      "survivors": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        26,
+        27,
+        29,
+        33,
+        34,
+        37,
+        40,
+        41,
+        42,
+        51,
+        53,
+        54,
+        63,
+        64,
+        65,
+        66,
+        67,
+        77,
+        78,
+        79,
+        80,
+        87,
+        88,
+        89,
+        90,
+        91,
+        98,
+        99,
+        100,
+        103,
+        104,
+        105,
+        106,
+        107,
+        112,
+        113,
+        117
+      ],
+      "triaged": []
+    },
+    {
+      "round": 3,
+      "score": 74.57627118644068,
+      "killed": 88,
+      "survived": 30,
+      "accepted": true,
+      "note": "accepted: score improved (13 failing test(s) dropped)",
+      "tokens_used": 7919,
+      "survivors": [
+        0,
+        1,
+        2,
+        26,
+        27,
+        33,
+        37,
+        41,
+        51,
+        53,
+        54,
+        63,
+        64,
+        65,
+        66,
+        67,
+        80,
+        84,
+        85,
+        87,
+        88,
+        91,
+        98,
+        100,
+        103,
+        104,
+        105,
+        112,
+        113,
+        117
+      ],
+      "triaged": []
+    }
+  ],
+  "models": {
+    "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "strong": "nvidia/nemotron-3-super-120b-a12b"
+  }
+}

@@ -149,7 +149,7 @@ class RunManager:
             return self._runs.get(run_id)
 
     def start(self, preset: Preset, rounds: int) -> RunState:
-        if self._factory is None:
+        if self._factory is None or not preset.live:
             raise LiveUnavailable()
         rounds = max(1, min(rounds, self.limits.max_rounds))
         with self._lock:
@@ -248,6 +248,7 @@ def create_app(
                 "blurb": p.blurb,
                 "target": p.target,
                 "has_replay": (replays_dir() / f"{p.id}.json").is_file(),
+                "live": p.live,
             }
             for p in PRESETS
         ]
@@ -267,7 +268,14 @@ def create_app(
             report = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             raise HTTPException(500, "The recording file could not be read.")
-        return {"preset": preset_id, "report": report}
+        baseline = None
+        try:  # optional comparison: the same loop without mutant feedback
+            baseline_path = replays_dir() / f"{preset_id}-baseline.json"
+            if baseline_path.is_file():
+                baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            baseline = None
+        return {"preset": preset_id, "report": report, "baseline": baseline}
 
     @app.post("/api/runs", status_code=202)
     def start_run(body: RunRequest) -> dict:

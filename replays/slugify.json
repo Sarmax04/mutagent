@@ -1,0 +1,792 @@
+{
+  "target": "slugify/slugify.py",
+  "mutant_count": 118,
+  "initial_score": 54.23728813559322,
+  "final_score": 88.13559322033899,
+  "tokens_used": 64871,
+  "generated_path": null,
+  "generated_code": "import pytest\nfrom slugify.slugify import slugify, _decode_entities, _transliterate, _modern_truncate, _numeric_reference\n\n# Tests for Mutant 0: entities flag inverted\ndef test_decode_entities_flag_inverted():\n    assert _decode_entities(\"&amp;\", entities=True, decimal=False, hexadecimal=False) == \"&\"\n    assert _decode_entities(\"&amp;\", entities=False, decimal=False, hexadecimal=False) == \"&amp;\"\n    # Original behavior: entities=True should decode, entities=False should leave unchanged\n\n# Tests for Mutant 1: decimal flag inverted\n    # Original: decimal=True decodes, False leaves alone\n\n# Tests for Mutant 2: hexadecimal flag inverted\n    # Original: hexadecimal=True decodes, False leaves alone\n\n# Tests for Mutant 4: isascii check inverted\ndef test_transliterate_ascii_shortcut_inverted():\n    # When text is ASCII, should return it directly regardless of backend\n    assert _transliterate(\"hello\", backend=\"unidecode\") == \"hello\"\n    # Only when NOT ASCII should it attempt to import backend\n    # This mutant would incorrectly try to translate ASCII strings\n\n# Tests for Mutant 5: auto backend condition inverted\n\n# Tests for Mutant 6: _transliterate returns None instead of result\n    # Mutant would return None causing downstream failures\n\n# Tests for Mutant 17: allow_unicode flag inverted\ndef test_modern_slugify_allow_unicode_inverted():\n    # Test with allow_unicode=True should normalize with NFKC\n    # Test with allow_unicode=False should transliterate\n    text = \"caf\u00e9\"\n    # With allow_unicode=True, \u00e9 should stay (after NFKC normalization)\n    result_unicode = slugify(text, allow_unicode=True, algorithm='modern')\n    # With allow_unicode=False, \u00e9 should become e\n    result_ascii = slugify(text, allow_unicode=False, algorithm='modern')\n    assert result_unicode != result_ascii\n    # The mutant would invert this behavior\n\n# Tests for Mutant 18: lowercase flag inverted\ndef test_modern_slugify_lowercase_inverted():\n    text = \"Hello World\"\n    result_lower = slugify(text, lowercase=True, algorithm='modern')\n    result_no_lower = slugify(text, lowercase=False, algorithm='modern')\n    assert result_lower == \"hello-world\"\n    assert result_no_lower == \"Hello-World\"\n    # Mutant would apply lowercase when flag=False and vice versa\n\n# Tests for Mutant 19: stopwords check inverted\ndef test_modern_slugify_stopwords_inverted():\n    text = \"this is a test\"\n    # With stopwords, should remove them\n    result_with_stop = slugify(text, stopwords=[\"is\", \"a\"], algorithm='modern')\n    # Without stopwords, should keep all words\n    result_without_stop = slugify(text, stopwords=[], algorithm='modern')\n    assert result_with_stop == \"this-test\"\n    assert result_without_stop == \"this-is-a-test\"\n    # Mutant would apply stopword removal when stopwords empty and skip when not empty\n\n# Tests for Mutant 26: surrogate range check inverted in _numeric_reference\ndef test_numeric_reference_surrogate_inverted():\n    # Surrogate pairs range is 0xD800-0xDFFF (55296-57343)\n    # Values in this range should return the original match (not decode)\n    # Values outside should decode to character\n    # Test a surrogate value\n    class MockMatch:\n        def group(self, n):\n            return \"55296\"  # Start of surrogate range\n    \n    result = _numeric_reference(MockMatch(), 10)\n    assert result == \"55296\"  # Should return original match for surrogate\n    \n    # Test a valid non-surrogate value\n    class MockMatch2:\n        def group(self, n):\n            return \"65\"  # 'A'\n    \n    result2 = _numeric_reference(MockMatch2(), 10)\n    assert result2 == \"A\"  # Should decode\n    \n    # Mutant would invert this: decode surrogates and not decode valid chars\n\n# Tests for Mutant 27: _numeric_reference returns None for valid chars\ndef test_numeric_reference_returns_none_for_valid():\n    class MockMatch:\n        def group(self, n):\n            return \"65\"  # 'A'\n    \n    result = _numeric_reference(MockMatch(), 10)\n    assert result == \"A\"\n    # Mutant would return None here\n\n# Tests for Mutant 29: backend auto condition uses != instead of ==\n    # If the condition was wrong, it might not import the correct module\n\n# Tests for Mutant 30: max_length < 0 instead of <= 0\ndef test_modern_truncate_max_length_edge():\n    text = \"hello-world\"\n    # When max_length=0, should return text with separators replaced\n    result = _modern_truncate(text, max_length=0, word_boundary=False, separator=\"-\", save_order=False)\n    assert result == \"hello-world\"  # DEFAULT_SEPARATOR is '-', so replace '-' with '-' = no change\n    \n    # When max_length=-1 (negative), original would treat same as <=0\n    # Mutant would only trigger on <0, so 0 would go through normal logic\n    result_at_zero = _modern_truncate(text, max_length=0, word_boundary=False, separator=\":\", save_order=False)\n    # Original: max_length<=0 -> replace '-' with ':'\n    # Mutant: max_length<0 is false for 0, so goes to normal truncation\n    assert result_at_zero == \"hello:world\"  # This exposes the difference\n    \n    # Test actual negative\n    result_neg = _modern_truncate(text, max_length=-1, word_boundary=False, separator=\":\", save_order=False)\n    assert result_neg == \"hello:world\"  # Both should agree on negative\n\n# Tests for Mutant 31: max_length<=0 returns None instead of replaced string\ndef test_modern_truncate_returns_none_at_zero():\n    text = \"hello-world\"\n    result = _modern_truncate(text, max_length=0, word_boundary=False, separator=\"-\", save_order=False)\n    assert result is not None\n    assert isinstance(result, str)\n    # Mutant would return None here\n\n# Tests for Mutant 33: output_length < max_length instead of <=\ndef test_modern_truncate_output_length_comparison():\n    # Create a case where output_length == max_length exactly\n    text = \"hi\"  # length 2, no dashes\n    separator = \"-\"\n    # output_length = len(text) + count*(len(sep)-1) = 2 + 0*(1) = 2\n    # Set max_length = 2\n    result = _modern_truncate(text, max_length=2, word_boundary=False, separator=separator, save_order=False)\n    # Original: output_length <= max_length (2<=2) -> return text with sep replaced\n    # Since separator is same as DEFAULT_SEPARATOR, result should be \"hi\"\n    assert result == \"hi\"\n    # Mutant: 2 < 2 is false, so would go to tokenization and likely return None or different result\n    assert result is not None\n\n# Tests for Mutant 34: output_length<=max_length returns None\ndef test_modern_truncate_returns_none_when_fit():\n    text = \"hi-test\"\n    # length=7, 1 dash, DEFAULT_SEPARATOR='-'\n    # output_length = 7 + 1*(len(\"-\")-1) = 7 + 0 = 7\n    result = _modern_truncate(text, max_length=7, word_boundary=False, separator=\"-\", save_order=False)\n    assert result is not None\n    assert result == \"hi-test\"\n    # Mutant would return None here\n\n# Tests for Mutant 37: previous_index initialized to 1 instead of 0\ndef test_modern_truncate_previous_index_init():\n    # This affects delimiter calculation in hard-cut branch\n    text = \"a-b-c\"  # tokens: [\"a\",\"b\",\"c\"]\n    # Use settings that will trigger hard-cut path\n    result = _modern_truncate(text, max_length=3, word_boundary=False, separator=\"-\", save_order=False)\n    # tokens = [\"a\",\"b\",\"c\"]\n    # With previous_index=1 (mutant) vs 0 (original):\n    # First word \"a\": index=0, delimiter = sep * (0-1) = negative -> \"\"? Actually index-previous_index\n    # Let's trace original: previous_index=0\n    #   index=0, word=\"a\": delimiter=\"\" (0-0), remaining=3-0-0=3, take \"a\", length=1, previous_index=0\n    #   index=1, word=\"b\": delimiter=\"\" (1-1?), wait: separator * (index - previous_index) = \"-\" * (1-0) = \"-\"\n    #   Actually: delimiter = separator * (index - previous_index)\n    #   So with previous_index=0: \n    #     word 0: delim=\"\" (0-0), take \"a\" -> length=1\n    #     word 1: delim=\"-\" (1-0), remaining=3-1-1=1, take \"b\"[:1]=\"b\" -> length=1+1+1=3\n    #     word 2: would have delim=\"--\" (2-0) but break since len(\"c\")>remaining?\n    #   Result: \"a-b\"\n    #\n    # With previous_index=1 (mutant):\n    #   word 0: delim=\"\" (0-1=-1 -> \"\"), take \"a\" -> length=1\n    #   word 1: delim=\"\" (1-1=0), remaining=3-1-0=2, take \"b\" -> length=1+0+1=2\n    #   word 2: delim=\"-\" (2-1=1), remaining=3-2-1=0 -> break or take 0 chars\n    #   Result: \"ab\" or \"a-b\" depending on exact logic\n    #\n    # Let's just assert that mutant gives different result\n    # We know original behavior from existing tests can guide us\n    expected_original = \"a-b\"  # Based on tracing above\n    result = _modern_truncate(text, max_length=3, word_boundary=False, separator=\"-\", save_order=False)\n    assert result == expected_original\n    # If mutant, result would likely be different (e.g., \"ab\" or \"a--b\")\n\n# Tests for Mutant 40: length -= instead of +=\ndef test_modern_truncate_length_decrement_instead_of_increment():\n    text = \"a-b-c\"\n    # This will make length go negative or not accumulate properly\n    result = _modern_truncate(text, max_length=10, word_boundary=False, separator=\"-\", save_order=False)\n    # Should be able to fit all since max_length large\n    expected = \"a-b-c\"\n    assert result == expected\n    # Mutant would subtract lengths, possibly making it break early or return wrong result\n\n# Tests for Mutant 41: negate word length check\ndef test_modern_truncate_word_length_check_inverted():\n    text = \"a-b-c\"\n    # After taking part of a word, should break if there's more word left\n    result = _modern_truncate(text, max_length=2, word_boundary=False, separator=\"-\", save_order=False)\n    # tokens=[\"a\",\"b\",\"c\"]\n    # Original logic:\n    #   word \"a\": takes all, length=1\n    #   word \"b\": delimiter=\"-\", remaining=2-1-1=0 -> break (or take 0 chars)\n    #   Result: \"a\"\n    #\n    # Mutant: if not len(word)>remaining -> break when word FITS completely\n    #   After taking \"a\": length=1\n    #   For \"b\": len(\"b\")=1, remaining=0, so 1>0 is True -> mutant condition \"if not True\" = False -> doesn't break\n    #   Then tries to take min(1,0)=0 chars of \"b\", adds delimiter+\"\": length stays 1\n    #   Then continues... this is messy. Better to test that it doesn't break early incorrectly.\n    #\n    # Simpler: test case where we should take partial word and stop\n    text = \"hi-there\"\n    result = _modern_truncate(text, max_length=3, word_boundary=False, separator=\"-\", save_order=False)\n    # tokens=[\"hi\",\"there\"]\n    # Should take \"hi\" (length=2), then delimiter=\"-\", remaining=3-2-1=0 -> stop\n    # Result: \"hi\"\n    #\n    # Mutant logic:\n    #   Take \"hi\": length=2\n    #   Word \"there\": len=5 > remaining=0 -> original breaks\n    #   Mutant: if not (5>0) = if not True = False -> doesn't break\n    #   remaining=0, so takes 0 chars: delimiter + \"\" = \"-\"\n    #   length += 1 + 0 = 3\n    #   Then continues or breaks? Actually after adding, checks if len(word)>remaining: 5>0 true -> breaks\n    #   Result: \"hi-\" \n    #\n    # So we can distinguish: original gives \"hi\", mutant gives \"hi-\"\n    result = _modern_truncate(\"hi-there\", max_length=3, word_boundary=False, separator=\"-\", save_order=False)\n    assert result == \"hi\"  # Original expected\n    # Mutant would produce \"hi-\"\n\n# Tests for Mutant 42: boolop and instead of and in type check\ndef test_modern_slugify_max_length_type_check_boolop():\n    # Original: if isinstance(max_length, bool) or not isinstance(max_length, int):\n    # Mutant:   if isinstance(max_length, bool) and (not isinstance(max_length, int)):\n    # \n    # Since bool is subclass of int, isinstance(True, int) is True\n    # So for max_length=True:\n    #   Original: isinstance(True,bool)=True -> condition True -> raises TypeError\n    #   Mutant:   isinstance(True,bool)=True and (not isinstance(True,int)) = True and (not True) = True and False = False -> doesn't raise\n    # \n    # Test that bool max_length raises TypeError in original\n    with pytest.raises(TypeError, match=\"max_length must be an int\"):\n        slugify(\"test\", max_length=True, algorithm='modern')\n    # Mutant would allow this and likely produce strange results\n\n# Tests for Mutant 45: double negative in text type check\ndef test_modern_slugify_text_type_check_double_negative():\n    # Original: if not isinstance(text, str):\n    #               if not isinstance(text, (bytes, bytearray)):\n    # Mutant:   if not isinstance(text, str):\n    #               if not not isinstance(text, (bytes, bytearray)):\n    #               -> if isinstance(text, (bytes, bytearray)):\n    #\n    # So for text=str: \n    #   Original: first if false -> skips\n    #   Mutant:   first if false -> skips\n    # Good.\n    #\n    # For text=int:\n    #   Original: first if true -> second if: not isinstance(int, bytes) = true -> raises error\n    #   Mutant:   first if true -> second if: isinstance(int, bytes) = false -> does NOT raise error, proceeds to decode\n    # \n    # Test that non-str/non-bytes raises TypeError\n    with pytest.raises(TypeError, match=\"text must be str, bytes or bytearray\"):\n        slugify(123, algorithm='modern')\n    # Mutant would not raise and try to decode integer as UTF-8\n\n# Tests for Mutant 51: or instead of and in post-replacement condition\ndef test_modern_slugify_replacement_stage_post_or_both():\n    # Original: if rules and replacement_stage in ('both', 'post'):\n    # Mutant:   if rules or replacement_stage in ('both', 'post'):\n    #\n    # Test case: no rules, replacement_stage='post'\n    #   Original: rules=() -> false and ... -> false -> no post replacement\n    #   Mutant:   rules=() -> false OR ('post' in ...) = true -> DOES post replacement\n    #\n    # So test with rules that would change output if applied post\n    text = \"hello-world\"\n    rules = [[\"world\", \"earth\"]]\n    # With replacement_stage='post' and rules present, should apply post\n    result_post = slugify(text, replacements=rules, replacement_stage='post', algorithm='modern')\n    # With replacement_stage='pre' and rules present, should apply pre\n    result_pre = slugify(text, replacements=rules, replacement_stage='pre', algorithm='modern')\n    # With no replacement_stage effect (but rules exist), default 'both' should apply\n    result_both = slugify(text, replacements=rules, algorithm='modern')\n    \n    # Original behavior:\n    #   Pre: \"hello-earth\" (then no post because stage='pre')\n    #   Post: \"hello-world\" -> \"hello-earth\" (because stage='post')\n    #   Both: \"hello-earth\" -> \"hello-earth\" \n    #\n    # Actually, lets think:\n    #   Input: \"hello-world\"\n    #   Rules: replace \"world\"->\"earth\"\n    #   Pre: applies to input -> \"hello-earth\", then proceeds through pipeline -> \"hello-earth\"\n    #   Post: skips pre, pipeline runs on \"hello-world\" -> \"hello-world\", then applies post -> \"hello-earth\"\n    #   Both: applies pre -> \"hello-earth\", pipeline -> \"hello-earth\", applies post -> \"hello-earth\"\n    #\n    # So all three should be \"hello-earth\" when rules applied correctly.\n    #\n    # Mutant with replacement_stage='post' and no rules:\n    #   Would still apply post replacement (due to OR condition) even though rules empty\n    #   But empty rules does nothing, so harmless.\n    #\n    # Need case where rules exist but stage should prevent application\n    # How about replacement_stage=None? Not valid. \n    # Actually: replacement_stage must be 'both','pre','post'\n    #\n    # Test replacement_stage='pre' with rules: \n    #   Original: applies pre (rules and 'pre' in ('both','post')? No) -> WAIT\n    #   replacement_stage in ('both', 'post') means: applies post if stage is both or post\n    #   So:\n    #     stage='pre':  rules and False -> no post (correct)\n    #     stage='post': rules and True  -> apply post\n    #     stage='both': rules and True  -> apply post\n    #     Pre-replacement always applies if replacement_stage in ('both','pre')\n    #\n    # I misread. Looking at code:\n    #   if rules and replacement_stage in ('both', 'pre'):  # PRE replacements\n    #   if rules and replacement_stage in ('both', 'post'): # POST replacements\n    #\n    # So for POST replacements: condition is (rules and replacement_stage in ('both', 'post'))\n    #\n    # Mutant changed this to: (rules or replacement_stage in ('both', 'post'))\n    #\n    # So test case: replacement_stage='pre', rules exist\n    #   Original POST condition: rules and ('pre' in ('both','post')) = True and False = False -> SKIP post (correct)\n    #   Mutant POST condition:   rules or ('pre' in ('both','post')) = True or False = True -> APPLY post (wrong)\n    #\n    # So if we have rules that would change output when applied post, and stage='pre',\n    # original: does NOT apply post -> output reflects pre-only\n    # mutant:   DOES apply post -> output reflects both pre and post\n    #\n    # Example: make rules that do nothing pre but change post\n    # Hard because same rules apply pre and post.\n    #\n    # Alternative: make rule that interacts badly with pipeline\n    # Rule: replace \"-\" with \":\" \n    #   Input: \"a-b\"\n    #   Pre-rule: \"a:b\" -> pipeline sees : as allowed? Depends on pattern.\n    #   Post-rule: applies after pipeline\n    #\n    # Let's use: rule that replaces letters, to make it obvious\n    text = \"a-b\"\n    rules = [[\"b\", \"x\"]]  # replace b with x\n    # \n    # Original:\n    #   stage='pre': \n    #     pre: \"a-x\" -> pipeline: \"a-x\" (assuming - is separator)\n    #     post: skipped (because stage='pre')\n    #     result: \"a-x\"\n    #   stage='post':\n    #     pre: skipped\n    #     pipeline: \"a-b\" -> \"a-b\"\n    #     post: \"a-x\"\n    #     result: \"a-x\"\n    #   Actually both give same result here.\n    #\n    # Need rule that does something that would be undone by pipeline if applied early\n    # How about adding a character that gets removed?\n    # Rule: add \"_\" (underscore)\n    # Pipeline removes underscores (they're in DISALLOWED_CHARS_PATTERN)\n    #   Pre: adds _, pipeline removes it -> net nothing\n    #   Post: pipeline runs, then adds _ -> net addition\n    text = \"a\"\n    rules = [[\"a\", \"a_\"]]  # turn \"a\" into \"a_\"\n    # \n    # Original:\n    #   stage='pre':\n    #     pre: \"a_\" -> pipeline removes _ -> \"a\"\n    #     post: skipped\n    #     result: \"a\"\n    #   stage='post':\n    #     pre: skipped\n    #     pipeline: \"a\" -> \"a\"\n    #     post: \"a_\"\n    #     result: \"a_\"\n    #\n    # So we can distinguish!\n    result_pre = slugify(text, replacements=rules, replacement_stage='pre', algorithm='modern')\n    result_post = slugify(text, replacements=rules, replacement_stage='post', algorithm='modern')\n    # Original: pre->\"a\", post->\"a_\"\n    assert result_pre == \"a\"\n    assert result_post == \"a_\"\n    # Mutant with stage='pre':\n    #   Post condition: rules or stage in ('both','post') = True or False = True -> applies post\n    #   Pre: applies -> \"a_\"\n    #   Pipeline: removes _ -> \"a\"\n    #   Post: applies -> \"a_\"\n    #   Result: \"a_\" (same as post)\n    #   So mutant would make stage='pre' give same result as stage='post'\n    #\n    # Therefore: if result_pre != result_post, original is working.\n    #            if result_pre == result_post, mutant is active.\n    assert result_pre != result_post  # This should pass on original, fail on mutant\n\n# Tests for Mutant 53: default decimal=True changed to False\ndef test_slugify_default_decimal_false():\n    # This mutant changes the DEFAULT value of decimal parameter from True to False\n    # Test that slugify defaults to decoding decimal entities\n    text = \"&#381;\"  # Should be 'z' when decimal=True\n    result = slugify(text, algorithm='modern')  # Uses default decimal=True\n    assert result == \"z\"  # If mutant, decimal defaults to False, would give \"381\"\n    \n    # Explicit test\n    result_false = slugify(text, decimal=False, algorithm='modern')\n    assert result_false == \"381\"\n    result_true = slugify(text, decimal=True, algorithm='modern')\n    assert result_true == \"z\"\n\n# Tests for Mutant 54: default hexadecimal=True changed to False\n\n# Tests for Mutant 63: surrogate range lower bound strict (< instead of <=)\n    # Original should not raise\n    # We can't easily test original without disabling mutant, but the logic is clear\n\n# Tests for Mutant 64: surrogate range upper bound strict (< instead of <=)\n\n# Tests for Mutant 65: return None instead of original match for surrogates\ndef test_numeric_reference_returns_none_for_surrogate():\n    class MockMatch:\n        def group(self, n):\n            return \"55296\"  # surrogate\n    result = _numeric_reference(MockMatch(), 10)\n    # Original: returns \"55296\"\n    # Mutant:   returns None\n    assert result == \"55296\"\n    # Mutant would return None\n\n# Tests for Mutant 66: return None instead of original match on overflow/error\ndef test_numeric_reference_returns_none_on_error():\n    class MockMatch:\n        def group(self, n):\n            return \"999999999999999999999\"  # huge number causing OverflowError\n    result = _numeric_reference(MockMatch(), 10)\n    # Original: returns the huge string\n    # Mutant:   returns None\n    assert result == \"999999999999999999999\"\n    # Mutant would return None\n\n# Tests for Mutant 67: max_length <= 1 instead of <= 0\ndef test_modern_truncate_max_length_one_threshold():\n    text = \"a-b\"\n    # Original: if max_length <= 0: return text with separators replaced\n    # Mutant:   if max_length <= 1: return text with separators replaced\n    #\n    # So for max_length=0:\n    #   Both trigger -> same result\n    # For max_length=1:\n    #   Original: 1 <= 0? False -> go to normal logic\n    #   Mutant:   1 <= 1? True -> return text.replace('-', separator)\n    #\n    # Test with separator different from DEFAULT_SEPARATOR to see effect\n    text = \"a-b\"  # one dash\n    result_len0 = _modern_truncate(text, max_length=0, word_boundary=False, separator=\":\", save_order=False)\n    result_len1_orig = _modern_truncate(text, max_length=1, word_boundary=False, separator=\":\", save_order=False)\n    # Original at max_length=1:\n    #   Does NOT take shortcut (since 1>0)\n    #   output_length = len(\"a-b\") + 1*(len(\"-\")-1) = 3 + 0 = 3\n    #   3 <= 1? No -> proceed to tokenization\n    #   tokens = [\"a\",\"b\"]\n    #   ... eventually returns something like \"a\" or \"a:\" etc\n    #   Actually let's compute: trying to fit within length 1\n    #   First token \"a\": \n    #       delimiter=\"\" (first word)\n    #       remaining = 1 - 0 - 0 = 1\n    #       take \"a\"[:1] = \"a\"\n    #       length = 0+0+1 = 1\n    #       previous_index=0\n    #   Second token \"b\":\n    #       delimiter = \":\" * (1-0) = \":\"\n    #       remaining = 1 - 1 - 1 = -1 -> break\n    #   Result: \"a\"\n    #\n    # Mutant at max_length=1:\n    #   Takes shortcut: return \"a-b\".replace(\"-\", \":\") = \"a:b\"\n    #\n    result_len1_mutant_expected = \"a:b\"  # What mutant would produce\n    result_len1_original = result_len1_orig  # What original produces\n    #\n    # We can't easily run both, but we know:\n    #   Original max_length=1 gives \"a\" (from above reasoning)\n    #   Mutant max_length=1 gives \"a:b\"\n    #\n    # So if we test max_length=1 and get \"a\", original is working.\n    # If we get \"a:b\", mutant is active.\n    assert result_len1_orig == \"a\"  # Original expected\n    # Mutant would produce \"a:b\" here\n\n# Tests for Mutant 77: remaining = max_length - length + len(delimiter) instead of -\n    # Mutant would likely give \"a:b\" or similar overflow\n\n# Final sanity test: ensure basic functionality works\n    # Note: word_boundary with hard cutoff can emit partial last word\n",
+  "mutants": [
+    {
+      "id": 0,
+      "line": 42,
+      "kind": "negate"
+    },
+    {
+      "id": 1,
+      "line": 44,
+      "kind": "negate"
+    },
+    {
+      "id": 2,
+      "line": 46,
+      "kind": "negate"
+    },
+    {
+      "id": 3,
+      "line": 48,
+      "kind": "return"
+    },
+    {
+      "id": 4,
+      "line": 53,
+      "kind": "negate"
+    },
+    {
+      "id": 5,
+      "line": 55,
+      "kind": "negate"
+    },
+    {
+      "id": 6,
+      "line": 66,
+      "kind": "return"
+    },
+    {
+      "id": 7,
+      "line": 75,
+      "kind": "negate"
+    },
+    {
+      "id": 8,
+      "line": 78,
+      "kind": "negate"
+    },
+    {
+      "id": 9,
+      "line": 81,
+      "kind": "negate"
+    },
+    {
+      "id": 10,
+      "line": 119,
+      "kind": "return"
+    },
+    {
+      "id": 11,
+      "line": 141,
+      "kind": "negate"
+    },
+    {
+      "id": 12,
+      "line": 143,
+      "kind": "negate"
+    },
+    {
+      "id": 13,
+      "line": 145,
+      "kind": "negate"
+    },
+    {
+      "id": 14,
+      "line": 149,
+      "kind": "negate"
+    },
+    {
+      "id": 15,
+      "line": 151,
+      "kind": "negate"
+    },
+    {
+      "id": 16,
+      "line": 156,
+      "kind": "negate"
+    },
+    {
+      "id": 17,
+      "line": 162,
+      "kind": "negate"
+    },
+    {
+      "id": 18,
+      "line": 167,
+      "kind": "negate"
+    },
+    {
+      "id": 19,
+      "line": 175,
+      "kind": "negate"
+    },
+    {
+      "id": 20,
+      "line": 178,
+      "kind": "negate"
+    },
+    {
+      "id": 21,
+      "line": 182,
+      "kind": "return"
+    },
+    {
+      "id": 22,
+      "line": 218,
+      "kind": "negate"
+    },
+    {
+      "id": 23,
+      "line": 220,
+      "kind": "negate"
+    },
+    {
+      "id": 24,
+      "line": 226,
+      "kind": "return"
+    },
+    {
+      "id": 25,
+      "line": 15,
+      "kind": "arith"
+    },
+    {
+      "id": 26,
+      "line": 34,
+      "kind": "negate"
+    },
+    {
+      "id": 27,
+      "line": 36,
+      "kind": "return"
+    },
+    {
+      "id": 28,
+      "line": 54,
+      "kind": "return"
+    },
+    {
+      "id": 29,
+      "line": 55,
+      "kind": "compare"
+    },
+    {
+      "id": 30,
+      "line": 75,
+      "kind": "compare"
+    },
+    {
+      "id": 31,
+      "line": 76,
+      "kind": "return"
+    },
+    {
+      "id": 32,
+      "line": 77,
+      "kind": "arith"
+    },
+    {
+      "id": 33,
+      "line": 78,
+      "kind": "compare"
+    },
+    {
+      "id": 34,
+      "line": 79,
+      "kind": "return"
+    },
+    {
+      "id": 35,
+      "line": 100,
+      "kind": "negate"
+    },
+    {
+      "id": 36,
+      "line": 104,
+      "kind": "const"
+    },
+    {
+      "id": 37,
+      "line": 105,
+      "kind": "const"
+    },
+    {
+      "id": 38,
+      "line": 107,
+      "kind": "negate"
+    },
+    {
+      "id": 39,
+      "line": 112,
+      "kind": "negate"
+    },
+    {
+      "id": 40,
+      "line": 115,
+      "kind": "arith"
+    },
+    {
+      "id": 41,
+      "line": 117,
+      "kind": "negate"
+    },
+    {
+      "id": 42,
+      "line": 141,
+      "kind": "boolop"
+    },
+    {
+      "id": 43,
+      "line": 143,
+      "kind": "not"
+    },
+    {
+      "id": 44,
+      "line": 145,
+      "kind": "not"
+    },
+    {
+      "id": 45,
+      "line": 146,
+      "kind": "negate"
+    },
+    {
+      "id": 46,
+      "line": 149,
+      "kind": "compare"
+    },
+    {
+      "id": 47,
+      "line": 151,
+      "kind": "compare"
+    },
+    {
+      "id": 48,
+      "line": 155,
+      "kind": "negate"
+    },
+    {
+      "id": 49,
+      "line": 156,
+      "kind": "boolop"
+    },
+    {
+      "id": 50,
+      "line": 171,
+      "kind": "boolop"
+    },
+    {
+      "id": 51,
+      "line": 178,
+      "kind": "boolop"
+    },
+    {
+      "id": 52,
+      "line": 187,
+      "kind": "const"
+    },
+    {
+      "id": 53,
+      "line": 188,
+      "kind": "const"
+    },
+    {
+      "id": 54,
+      "line": 189,
+      "kind": "const"
+    },
+    {
+      "id": 55,
+      "line": 190,
+      "kind": "const"
+    },
+    {
+      "id": 56,
+      "line": 191,
+      "kind": "const"
+    },
+    {
+      "id": 57,
+      "line": 193,
+      "kind": "const"
+    },
+    {
+      "id": 58,
+      "line": 196,
+      "kind": "const"
+    },
+    {
+      "id": 59,
+      "line": 198,
+      "kind": "const"
+    },
+    {
+      "id": 60,
+      "line": 218,
+      "kind": "compare"
+    },
+    {
+      "id": 61,
+      "line": 220,
+      "kind": "compare"
+    },
+    {
+      "id": 62,
+      "line": 221,
+      "kind": "return"
+    },
+    {
+      "id": 63,
+      "line": 34,
+      "kind": "compare"
+    },
+    {
+      "id": 64,
+      "line": 34,
+      "kind": "compare"
+    },
+    {
+      "id": 65,
+      "line": 35,
+      "kind": "return"
+    },
+    {
+      "id": 66,
+      "line": 38,
+      "kind": "return"
+    },
+    {
+      "id": 67,
+      "line": 75,
+      "kind": "const"
+    },
+    {
+      "id": 68,
+      "line": 77,
+      "kind": "arith"
+    },
+    {
+      "id": 69,
+      "line": 83,
+      "kind": "const"
+    },
+    {
+      "id": 70,
+      "line": 84,
+      "kind": "const"
+    },
+    {
+      "id": 71,
+      "line": 85,
+      "kind": "const"
+    },
+    {
+      "id": 72,
+      "line": 87,
+      "kind": "negate"
+    },
+    {
+      "id": 73,
+      "line": 95,
+      "kind": "negate"
+    },
+    {
+      "id": 74,
+      "line": 101,
+      "kind": "return"
+    },
+    {
+      "id": 75,
+      "line": 107,
+      "kind": "not"
+    },
+    {
+      "id": 76,
+      "line": 110,
+      "kind": "arith"
+    },
+    {
+      "id": 77,
+      "line": 111,
+      "kind": "arith"
+    },
+    {
+      "id": 78,
+      "line": 112,
+      "kind": "compare"
+    },
+    {
+      "id": 79,
+      "line": 115,
+      "kind": "arith"
+    },
+    {
+      "id": 80,
+      "line": 117,
+      "kind": "compare"
+    },
+    {
+      "id": 81,
+      "line": 141,
+      "kind": "not"
+    },
+    {
+      "id": 82,
+      "line": 146,
+      "kind": "not"
+    },
+    {
+      "id": 83,
+      "line": 156,
+      "kind": "compare"
+    },
+    {
+      "id": 84,
+      "line": 166,
+      "kind": "negate"
+    },
+    {
+      "id": 85,
+      "line": 171,
+      "kind": "negate"
+    },
+    {
+      "id": 86,
+      "line": 178,
+      "kind": "compare"
+    },
+    {
+      "id": 87,
+      "line": 34,
+      "kind": "const"
+    },
+    {
+      "id": 88,
+      "line": 34,
+      "kind": "const"
+    },
+    {
+      "id": 89,
+      "line": 59,
+      "kind": "negate"
+    },
+    {
+      "id": 90,
+      "line": 65,
+      "kind": "negate"
+    },
+    {
+      "id": 91,
+      "line": 77,
+      "kind": "arith"
+    },
+    {
+      "id": 92,
+      "line": 87,
+      "kind": "not"
+    },
+    {
+      "id": 93,
+      "line": 91,
+      "kind": "negate"
+    },
+    {
+      "id": 94,
+      "line": 93,
+      "kind": "const"
+    },
+    {
+      "id": 95,
+      "line": 94,
+      "kind": "arith"
+    },
+    {
+      "id": 96,
+      "line": 95,
+      "kind": "compare"
+    },
+    {
+      "id": 97,
+      "line": 98,
+      "kind": "negate"
+    },
+    {
+      "id": 98,
+      "line": 110,
+      "kind": "arith"
+    },
+    {
+      "id": 99,
+      "line": 111,
+      "kind": "arith"
+    },
+    {
+      "id": 100,
+      "line": 112,
+      "kind": "const"
+    },
+    {
+      "id": 101,
+      "line": 114,
+      "kind": "arith"
+    },
+    {
+      "id": 102,
+      "line": 176,
+      "kind": "negate"
+    },
+    {
+      "id": 103,
+      "line": 33,
+      "kind": "const"
+    },
+    {
+      "id": 104,
+      "line": 35,
+      "kind": "const"
+    },
+    {
+      "id": 105,
+      "line": 38,
+      "kind": "const"
+    },
+    {
+      "id": 106,
+      "line": 59,
+      "kind": "compare"
+    },
+    {
+      "id": 107,
+      "line": 65,
+      "kind": "compare"
+    },
+    {
+      "id": 108,
+      "line": 77,
+      "kind": "const"
+    },
+    {
+      "id": 109,
+      "line": 91,
+      "kind": "boolop"
+    },
+    {
+      "id": 110,
+      "line": 91,
+      "kind": "arith"
+    },
+    {
+      "id": 111,
+      "line": 94,
+      "kind": "arith"
+    },
+    {
+      "id": 112,
+      "line": 45,
+      "kind": "const"
+    },
+    {
+      "id": 113,
+      "line": 47,
+      "kind": "const"
+    },
+    {
+      "id": 114,
+      "line": 91,
+      "kind": "arith"
+    },
+    {
+      "id": 115,
+      "line": 96,
+      "kind": "arith"
+    },
+    {
+      "id": 116,
+      "line": 177,
+      "kind": "compare"
+    },
+    {
+      "id": 117,
+      "line": 43,
+      "kind": "const"
+    }
+  ],
+  "mode": "guided",
+  "rounds": [
+    {
+      "round": 0,
+      "score": 54.23728813559322,
+      "killed": 64,
+      "survived": 54,
+      "accepted": true,
+      "note": "baseline",
+      "tokens_used": 0,
+      "survivors": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        17,
+        18,
+        19,
+        26,
+        27,
+        29,
+        30,
+        31,
+        33,
+        34,
+        37,
+        40,
+        41,
+        42,
+        45,
+        51,
+        53,
+        54,
+        63,
+        64,
+        65,
+        66,
+        67,
+        77,
+        78,
+        79,
+        80,
+        82,
+        84,
+        85,
+        87,
+        88,
+        89,
+        90,
+        91,
+        98,
+        99,
+        100,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        112,
+        113,
+        116,
+        117
+      ],
+      "triaged": []
+    },
+    {
+      "round": 1,
+      "score": 54.23728813559322,
+      "killed": 64,
+      "survived": 54,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 13211,
+      "survivors": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        17,
+        18,
+        19,
+        26,
+        27,
+        29,
+        30,
+        31,
+        33,
+        34,
+        37,
+        40,
+        41,
+        42,
+        45,
+        51,
+        53,
+        54,
+        63,
+        64,
+        65,
+        66,
+        67,
+        77,
+        78,
+        79,
+        80,
+        82,
+        84,
+        85,
+        87,
+        88,
+        89,
+        90,
+        91,
+        98,
+        99,
+        100,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        112,
+        113,
+        116,
+        117
+      ],
+      "triaged": []
+    },
+    {
+      "round": 2,
+      "score": 88.13559322033899,
+      "killed": 104,
+      "survived": 14,
+      "accepted": true,
+      "note": "accepted: score improved (10 failing test(s) dropped)",
+      "tokens_used": 21352,
+      "survivors": [
+        2,
+        33,
+        37,
+        54,
+        64,
+        80,
+        85,
+        88,
+        91,
+        98,
+        102,
+        104,
+        105,
+        113
+      ],
+      "triaged": []
+    },
+    {
+      "round": 3,
+      "score": 88.13559322033899,
+      "killed": 104,
+      "survived": 14,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 30308,
+      "survivors": [
+        2,
+        33,
+        37,
+        54,
+        64,
+        80,
+        85,
+        88,
+        91,
+        98,
+        102,
+        104,
+        105,
+        113
+      ],
+      "triaged": []
+    }
+  ],
+  "models": {
+    "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "strong": "nvidia/nemotron-3-super-120b-a12b"
+  }
+}

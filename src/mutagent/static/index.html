@@ -166,7 +166,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
 <div class="page">
   <header>
     <h1>MutAgent</h1>
-    <p class="lede">An agent writes tests, then proves they work. We plant small bugs in the code and count how many the tests catch.</p>
+    <p class="lede">An agent writes tests, then proves they work. It plants small bugs in the code and counts how many the tests catch.</p>
   </header>
 
   <section class="controls" aria-label="Choose a run">
@@ -205,6 +205,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
         <dt>Started at</dt><dd id="f-start">&ndash;</dd>
         <dt>Caught</dt><dd id="f-caught">&ndash;</dd>
         <dt>Model tokens</dt><dd id="f-tokens">&ndash;</dd>
+        <dt id="t-baseline" hidden>Same model, no bug feedback</dt><dd id="f-baseline" hidden></dd>
       </dl>
     </div>
   </section>
@@ -245,7 +246,7 @@ const KIND = {
   const: "constant changed",
 };
 
-const app = { presets: [], status: null, preset: null, mode: "replay", token: 0, busy: false, total: 0, wells: [], recording: null, code: "" };
+const app = { baseline: null, presets: [], status: null, preset: null, mode: "replay", token: 0, busy: false, total: 0, wells: [], recording: null, code: "" };
 
 async function api(path, options) {
   const response = await fetch(path, options);
@@ -316,15 +317,25 @@ function paintRound(rounds, index) {
   $("#f-caught").textContent = round.killed + " of " + app.total;
   const tokens = rounds.slice(0, index + 1).reduce((sum, r) => sum + (r.tokens_used || 0), 0);
   $("#f-tokens").textContent = tokens > 0 ? tokens.toLocaleString() : "none yet";
+  const one = app.recording && app.baseline && index === rounds.length - 1;
+  $("#t-baseline").hidden = !one;
+  $("#f-baseline").hidden = !one;
+  if (one) {
+    const o = app.baseline;
+    $("#f-baseline").textContent = o.final_score.toFixed(1) + "% (" + (o.tokens_used || 0).toLocaleString() + " tokens)";
+  }
 }
 
 /* ---------- rounds list, code, log ---------- */
 function plainNote(round) {
   const note = round.note || "";
   if (note === "baseline") return "The library's own tests";
+  const small = round.triaged && round.triaged.length
+    ? " The small model set aside " + round.triaged.length + " bug(s) that look unkillable."
+    : "";
   if (note.startsWith("accepted")) {
     const m = note.match(/\((\d+) failing/);
-    return "Kept the new tests. The score rose." + (m ? " " + m[1] + " wrong test(s) were removed first." : "");
+    return "Kept the new tests. The score rose." + (m ? " " + m[1] + " wrong test(s) were removed first." : "") + small;
   }
   if (note.includes("fail on the original")) return "Dropped the new tests. They failed on the original code.";
   if (note.includes("no score improvement")) return "Dropped the new tests. They caught nothing new.";
@@ -377,6 +388,8 @@ function resetResults() {
   $("#f-start").textContent = "–";
   $("#f-caught").textContent = "–";
   $("#f-tokens").textContent = "–";
+  $("#t-baseline").hidden = true;
+  $("#f-baseline").hidden = true;
   $("#wells").setAttribute("aria-label", "No run loaded yet");
   $("#rounds-list").replaceChildren(el("li", "empty", "Nothing has run yet."));
   $("#rounds-list").firstElementChild.style.padding = "12px 0";
@@ -425,9 +438,13 @@ async function loadPreview() {
   $("#go").textContent = app.mode === "live" ? "Start live run" : "Play recording";
   updateHint();
   if (app.mode === "live") {
-    $("#plate-empty").textContent = "Start a run to see the bugs planted in " + app.preset.target + ".";
+    const slow = app.preset.live === false;
+    $("#plate-empty").textContent = slow
+      ? "This library is too slow to score on this server. Switch to the recorded run."
+      : "Start a run to see the bugs planted in " + app.preset.target + ".";
     showFooter(app.status && app.status.models);
     setBusy(false);
+    if (slow) { $("#go").disabled = true; say("Live runs are not offered for this library. Use the recorded run.", false); }
     return;
   }
   $("#plate-empty").textContent = "Loading the recording...";
@@ -436,6 +453,7 @@ async function loadPreview() {
     if (token !== app.token) return;
     const report = data.report;
     app.recording = report;
+    app.baseline = data.baseline && typeof data.baseline.final_score === "number" ? data.baseline : null;
     buildPlate(report.rounds[0].killed + report.rounds[0].survived, {});
     applyMeta(report.mutants);
     paintRound(report.rounds, 0);

@@ -1,0 +1,353 @@
+{
+  "target": "src/cachetools/func.py",
+  "mutant_count": 55,
+  "initial_score": 89.0909090909091,
+  "final_score": 96.36363636363636,
+  "tokens_used": 27928,
+  "generated_path": null,
+  "generated_code": "import random\nimport time\nimport pytest\nfrom cachetools.func import (\n    fifo_cache,\n    lfu_cache,\n    lru_cache,\n    rr_cache,\n    ttl_cache,\n    cached,\n)\n\n\ndef dummy():\n    pass\n\n\n@pytest.mark.parametrize(\"decorator\", [fifo_cache, lfu_cache, lru_cache, rr_cache, ttl_cache])\ndef test_none_maxsize_is_supported(decorator):\n    f = decorator(maxsize=None)(dummy)\n    assert f.cache_parameters()[\"maxsize\"] is None\n    assert isinstance(f.cache_info()[2], int) or f.cache_info()[2] is None\n    assert len(f.cache_info()) == 4\n\n\n\n\n\n\n@pytest.mark.parametrize(\"decorator_factory\", [\n    lambda: fifo_cache(maxsize=1),\n    lambda: lfu_cache(maxsize=1),\n    lambda: lru_cache(maxsize=1),\n    lambda: rr_cache(maxsize=1, choice=lambda x: x[0]),\n    lambda: ttl_cache(maxsize=1, ttl=10),\n])\ndef test_single_element_cache_behaves_as_expected(decorator_factory):\n    call_log = []\n    def fn(x):\n        call_log.append(x)\n        return x * 2\n    dec = decorator_factory()(fn)\n    assert dec(1) == 2\n    assert dec(1) == 2\n    assert call_log.count(1) == 1\n    assert dec(2) == 4\n    assert call_log[-1] == 2\n    assert call_log.count(2) == 1\n    assert dec(1) == 2\n    assert call_log.count(1) == 2\n\n\n@pytest.mark.parametrize(\"decorator\", [fifo_cache, lfu_cache, lru_cache, rr_cache])\ndef test_default_maxsize_is_128(decorator):\n    c = decorator()(lambda x: x)\n    assert c.cache_parameters()[\"maxsize\"] == 128\n\n\n\n\n\n\ndef test_cache_parameters_returns_copy():\n    d = lru_cache(maxsize=42, typed=True)(lambda: None)\n    params = d.cache_parameters()\n    params[\"maxsize\"] = 99\n    assert d.cache_parameters()[\"maxsize\"] == 42\n    params.clear()\n    assert d.cache_parameters()\n\n\ndef test_key_normalization_when_typed_false():\n    dec = lru_cache(typed=False)(lambda x: x)\n    assert dec(1) == 1\n    assert dec(1.0) == 1\n    assert dec.cache_info().hits == 1\n\n\ndef test_key_distinction_when_typed_true():\n    dec = lru_cache(typed=True)(lambda x: x)\n    assert dec(1) == 1\n    assert dec(1.0) == 1.0\n    info = dec.cache_info()\n    assert info.hits == 0\n    assert info.misses == 2\n\n\ndef test_cache_info_hits_misses_maxsize_currsize_structure():\n    dec = lru_cache(maxsize=3)(lambda x: x)\n    assert dec.cache_info() == (0, 0, 3, 0)\n    dec(1)\n    assert dec.cache_info() == (0, 1, 3, 1)\n    dec(1)\n    assert dec.cache_info() == (1, 1, 3, 1)\n    dec(2)\n    assert dec.cache_info() == (1, 2, 3, 2)\n    dec(1)\n    assert dec.cache_info() == (2, 2, 3, 2)\n\n\ndef test_cache_clear_resets_stats_and_contents():\n    dec = lru_cache(maxsize=3)(lambda x: x * 2)\n    dec(1)\n    dec(2)\n    dec(1)\n    assert dec.cache_info().hits == 1\n    dec.cache_clear()\n    info = dec.cache_info()\n    assert info == (0, 0, 3, 0)\n    assert dec(1) == 2\n    assert dec.cache_info() == (0, 1, 3, 1)\n\n\ndef test_ttl_cache_expensive_call_only_once_within_ttl(monkeypatch):\n    now = 0.0\n    def timer():\n        return now\n    calls = []\n    @ttl_cache(maxsize=128, ttl=0.1, timer=timer)\n    def func(x):\n        calls.append(x)\n        return x\n    assert func(1) == 1\n    now += 0.05\n    assert func(1) == 1\n    assert len(calls) == 1\n    now += 0.1\n    assert func(1) == 1\n    assert len(calls) == 2\n\n\ndef test_ttl_cache_with_none_maxsize_does_not_evict_by_size():\n    calls = []\n    @ttl_cache(maxsize=None, ttl=0.1, timer=time.monotonic)\n    def func(x):\n        calls.append(x)\n        return x\n    start = time.monotonic()\n    for i in range(10):\n        func(i)\n    elapsed = time.monotonic() - start\n    assert elapsed < 0.1\n    assert len(calls) == 10\n    time.sleep(0.11)\n    func(5)\n    assert len(calls) == 11\n\n\n\n\ndef test_cached_decorator_directly_accepts_cache_and_key():\n    store = {}\n    def key_func(*args, **kwargs):\n        return args[0]\n    cond = __import__('threading').Condition()\n    @cached(cache=store, key=key_func, condition=cond)\n    def f(x):\n        return x * 2\n    assert f(5) == 10\n    assert store[5] == 10\n    assert f(5) == 10\n\n\nif __name__ == \"__main__\":\n    pytest.fail(\"This file is intended to be used with pytest only.\")\n",
+  "mutants": [
+    {
+      "id": 0,
+      "line": 32,
+      "kind": "return"
+    },
+    {
+      "id": 1,
+      "line": 41,
+      "kind": "negate"
+    },
+    {
+      "id": 2,
+      "line": 55,
+      "kind": "negate"
+    },
+    {
+      "id": 3,
+      "line": 69,
+      "kind": "negate"
+    },
+    {
+      "id": 4,
+      "line": 83,
+      "kind": "negate"
+    },
+    {
+      "id": 5,
+      "line": 97,
+      "kind": "negate"
+    },
+    {
+      "id": 6,
+      "line": 30,
+      "kind": "return"
+    },
+    {
+      "id": 7,
+      "line": 35,
+      "kind": "const"
+    },
+    {
+      "id": 8,
+      "line": 35,
+      "kind": "const"
+    },
+    {
+      "id": 9,
+      "line": 41,
+      "kind": "compare"
+    },
+    {
+      "id": 10,
+      "line": 42,
+      "kind": "return"
+    },
+    {
+      "id": 11,
+      "line": 43,
+      "kind": "negate"
+    },
+    {
+      "id": 12,
+      "line": 49,
+      "kind": "const"
+    },
+    {
+      "id": 13,
+      "line": 49,
+      "kind": "const"
+    },
+    {
+      "id": 14,
+      "line": 55,
+      "kind": "compare"
+    },
+    {
+      "id": 15,
+      "line": 56,
+      "kind": "return"
+    },
+    {
+      "id": 16,
+      "line": 57,
+      "kind": "negate"
+    },
+    {
+      "id": 17,
+      "line": 63,
+      "kind": "const"
+    },
+    {
+      "id": 18,
+      "line": 63,
+      "kind": "const"
+    },
+    {
+      "id": 19,
+      "line": 69,
+      "kind": "compare"
+    },
+    {
+      "id": 20,
+      "line": 70,
+      "kind": "return"
+    },
+    {
+      "id": 21,
+      "line": 71,
+      "kind": "negate"
+    },
+    {
+      "id": 22,
+      "line": 77,
+      "kind": "const"
+    },
+    {
+      "id": 23,
+      "line": 77,
+      "kind": "const"
+    },
+    {
+      "id": 24,
+      "line": 83,
+      "kind": "compare"
+    },
+    {
+      "id": 25,
+      "line": 84,
+      "kind": "return"
+    },
+    {
+      "id": 26,
+      "line": 85,
+      "kind": "negate"
+    },
+    {
+      "id": 27,
+      "line": 91,
+      "kind": "const"
+    },
+    {
+      "id": 28,
+      "line": 91,
+      "kind": "const"
+    },
+    {
+      "id": 29,
+      "line": 91,
+      "kind": "const"
+    },
+    {
+      "id": 30,
+      "line": 97,
+      "kind": "compare"
+    },
+    {
+      "id": 31,
+      "line": 98,
+      "kind": "return"
+    },
+    {
+      "id": 32,
+      "line": 99,
+      "kind": "negate"
+    },
+    {
+      "id": 33,
+      "line": 27,
+      "kind": "negate"
+    },
+    {
+      "id": 34,
+      "line": 44,
+      "kind": "return"
+    },
+    {
+      "id": 35,
+      "line": 46,
+      "kind": "return"
+    },
+    {
+      "id": 36,
+      "line": 58,
+      "kind": "return"
+    },
+    {
+      "id": 37,
+      "line": 60,
+      "kind": "return"
+    },
+    {
+      "id": 38,
+      "line": 72,
+      "kind": "return"
+    },
+    {
+      "id": 39,
+      "line": 74,
+      "kind": "return"
+    },
+    {
+      "id": 40,
+      "line": 86,
+      "kind": "return"
+    },
+    {
+      "id": 41,
+      "line": 88,
+      "kind": "return"
+    },
+    {
+      "id": 42,
+      "line": 100,
+      "kind": "return"
+    },
+    {
+      "id": 43,
+      "line": 102,
+      "kind": "return"
+    },
+    {
+      "id": 44,
+      "line": 28,
+      "kind": "const"
+    },
+    {
+      "id": 45,
+      "line": 44,
+      "kind": "const"
+    },
+    {
+      "id": 46,
+      "line": 58,
+      "kind": "const"
+    },
+    {
+      "id": 47,
+      "line": 72,
+      "kind": "const"
+    },
+    {
+      "id": 48,
+      "line": 86,
+      "kind": "const"
+    },
+    {
+      "id": 49,
+      "line": 100,
+      "kind": "const"
+    },
+    {
+      "id": 50,
+      "line": 44,
+      "kind": "const"
+    },
+    {
+      "id": 51,
+      "line": 58,
+      "kind": "const"
+    },
+    {
+      "id": 52,
+      "line": 72,
+      "kind": "const"
+    },
+    {
+      "id": 53,
+      "line": 86,
+      "kind": "const"
+    },
+    {
+      "id": 54,
+      "line": 100,
+      "kind": "const"
+    }
+  ],
+  "mode": "baseline",
+  "rounds": [
+    {
+      "round": 0,
+      "score": 89.0909090909091,
+      "killed": 49,
+      "survived": 6,
+      "accepted": true,
+      "note": "baseline",
+      "tokens_used": 0,
+      "survivors": [
+        7,
+        12,
+        17,
+        22,
+        27,
+        28
+      ],
+      "triaged": []
+    },
+    {
+      "round": 1,
+      "score": 96.36363636363636,
+      "killed": 53,
+      "survived": 2,
+      "accepted": true,
+      "note": "accepted: score improved (5 failing test(s) dropped) (after one repair)",
+      "tokens_used": 11406,
+      "survivors": [
+        27,
+        28
+      ],
+      "triaged": []
+    },
+    {
+      "round": 2,
+      "score": 96.36363636363636,
+      "killed": 53,
+      "survived": 2,
+      "accepted": false,
+      "note": "rejected: tests fail on the original code",
+      "tokens_used": 9331,
+      "survivors": [
+        27,
+        28
+      ],
+      "triaged": []
+    },
+    {
+      "round": 3,
+      "score": 96.36363636363636,
+      "killed": 53,
+      "survived": 2,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 7191,
+      "survivors": [
+        27,
+        28
+      ],
+      "triaged": []
+    }
+  ],
+  "models": {
+    "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "strong": "nvidia/nemotron-3-super-120b-a12b"
+  }
+}

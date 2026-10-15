@@ -174,7 +174,7 @@ def test_src_layout_scores_the_mutated_copy(tmp_path):
         "from pkg.calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n"
     )
     mutants, statuses = measure(project, "src/pkg/calc.py")
-    assert len(mutants) == 1
+    assert len(mutants) == 2  # `a + b` -> `a - b`, and `return ...` -> `return None`
     assert mutation_score(statuses) == 100.0  # 0% would mean the original was imported
 
 
@@ -238,3 +238,90 @@ def test_prune_gives_up_when_nothing_would_remain():
     assert prune_tests(code, ["missing"]) is None
     assert failing_test_names("FAILED t.py::TestX::test_a - boom") is None
     assert failing_test_names("FAILED t.py::test_a[1] - boom") == ["test_a"]
+
+
+class RecordingLLM(FakeLLM):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.prompts: list[tuple[Tier, str]] = []
+
+    def complete(self, tier, messages):
+        self.prompts.append((tier, messages[-1]["content"]))
+        return super().complete(tier, messages)
+
+
+def test_baseline_hides_the_surviving_mutants(project):
+    llm = RecordingLLM([fenced(STRONG_TESTS)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet, guided=False)
+    assert report.mode == "baseline"
+    assert report.final_score > report.initial_score
+    (_, prompt), = llm.prompts
+    assert "Surviving mutants" not in prompt and "### Mutant" not in prompt
+    assert "not told which bugs" in prompt
+
+
+def test_baseline_ignores_tests_left_by_an_earlier_run(project):
+    (project / GENERATED_REL).write_text(fenced(STRONG_TESTS).split("```python\n")[1].split("```")[0])
+    llm = RecordingLLM([""])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet, guided=False)
+    # only the project's own weak tests count, not the strong file left behind
+    _, own = measure(DEMO, "pricing.py")  # the pristine demo project
+    assert report.initial_score == mutation_score(own)
+    assert report.initial_score < 60
+
+
+def test_guided_prompt_shows_the_mutants_and_triage_is_recorded(project):
+    _, own = measure(project, "pricing.py")
+    first, second = [i for i, status in own.items() if status == "survived"][:2]
+    llm = RecordingLLM([fenced(STRONG_TESTS)], triage_reply=f"[{first}, {second}]")
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet, triage=True)
+    assert report.mode == "guided"
+    assert report.rounds[1].triaged == sorted([first, second])
+    strong_prompt = [p for tier, p in llm.prompts if tier is Tier.STRONG][0]
+    assert "### Mutant" in strong_prompt
+    assert f"### Mutant {first} " not in strong_prompt
+    assert f"### Mutant {second} " not in strong_prompt
+
+
+def test_syntax_error_gets_one_repair_attempt(project):
+    broken = STRONG_TESTS + "\ndef test_broken(:\n    pass\n"
+    llm = RecordingLLM([fenced(broken), fenced(STRONG_TESTS)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet)
+    assert report.rounds[1].accepted
+    assert "after one repair" in report.rounds[1].note
+    assert len(llm.prompts) == 2 and "could not be loaded" in llm.prompts[1][1]
+    assert report.tokens_used == 200  # the repair call is counted
+
+
+def test_collection_error_gets_one_repair_attempt(project):
+    bad_import = "from pricing_does_not_exist import apply_discount\n\n" + STRONG_TESTS
+    llm = RecordingLLM([fenced(bad_import), fenced(STRONG_TESTS)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet)
+    assert report.rounds[1].accepted and "after one repair" in report.rounds[1].note
+
+
+def test_only_one_repair_per_round(project):
+    still_broken = "def test_x(:\n    pass\n"
+    llm = RecordingLLM([fenced(still_broken), fenced(still_broken)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet)
+    assert not report.rounds[1].accepted
+    assert len(llm.prompts) == 2
+
+
+def test_baseline_runs_several_rounds_without_ever_showing_mutants(project):
+    llm = RecordingLLM(["no code here", fenced(STRONG_TESTS)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=3, log=quiet, guided=False)
+    assert report.mode == "baseline" and report.final_score > report.initial_score
+    assert all("### Mutant" not in prompt and "Surviving mutants" not in prompt for _, prompt in llm.prompts)
+
+
+def test_triage_ignores_implausible_verdict():
+    from mutagent.loop import triage_equivalent
+    from mutagent.mutation import Mutant
+
+    class AllLLM:
+        def complete(self, tier, messages):
+            return "[1, 2, 3, 4]"
+
+    ms = [Mutant(id=i, lineno=i, kind="compare", diff="d", source="x") for i in (1, 2, 3, 4)]
+    assert triage_equivalent(AllLLM(), ms) == set()

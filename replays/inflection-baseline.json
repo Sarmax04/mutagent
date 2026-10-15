@@ -1,0 +1,630 @@
+{
+  "target": "inflection/__init__.py",
+  "mutant_count": 108,
+  "initial_score": 88.88888888888889,
+  "final_score": 88.88888888888889,
+  "tokens_used": 53362,
+  "generated_path": null,
+  "generated_code": "",
+  "mutants": [
+    {
+      "id": 0,
+      "line": 102,
+      "kind": "negate"
+    },
+    {
+      "id": 1,
+      "line": 165,
+      "kind": "negate"
+    },
+    {
+      "id": 2,
+      "line": 180,
+      "kind": "return"
+    },
+    {
+      "id": 3,
+      "line": 201,
+      "kind": "return"
+    },
+    {
+      "id": 4,
+      "line": 226,
+      "kind": "negate"
+    },
+    {
+      "id": 5,
+      "line": 257,
+      "kind": "return"
+    },
+    {
+      "id": 6,
+      "line": 274,
+      "kind": "negate"
+    },
+    {
+      "id": 7,
+      "line": 281,
+      "kind": "return"
+    },
+    {
+      "id": 8,
+      "line": 300,
+      "kind": "negate"
+    },
+    {
+      "id": 9,
+      "line": 334,
+      "kind": "return"
+    },
+    {
+      "id": 10,
+      "line": 351,
+      "kind": "return"
+    },
+    {
+      "id": 11,
+      "line": 372,
+      "kind": "return"
+    },
+    {
+      "id": 12,
+      "line": 394,
+      "kind": "return"
+    },
+    {
+      "id": 13,
+      "line": 416,
+      "kind": "return"
+    },
+    {
+      "id": 14,
+      "line": 100,
+      "kind": "return"
+    },
+    {
+      "id": 15,
+      "line": 102,
+      "kind": "compare"
+    },
+    {
+      "id": 16,
+      "line": 144,
+      "kind": "const"
+    },
+    {
+      "id": 17,
+      "line": 166,
+      "kind": "return"
+    },
+    {
+      "id": 18,
+      "line": 168,
+      "kind": "return"
+    },
+    {
+      "id": 19,
+      "line": 226,
+      "kind": "compare"
+    },
+    {
+      "id": 20,
+      "line": 227,
+      "kind": "return"
+    },
+    {
+      "id": 21,
+      "line": 229,
+      "kind": "return"
+    },
+    {
+      "id": 22,
+      "line": 300,
+      "kind": "boolop"
+    },
+    {
+      "id": 23,
+      "line": 301,
+      "kind": "return"
+    },
+    {
+      "id": 24,
+      "line": 306,
+      "kind": "return"
+    },
+    {
+      "id": 25,
+      "line": 328,
+      "kind": "negate"
+    },
+    {
+      "id": 26,
+      "line": 332,
+      "kind": "negate"
+    },
+    {
+      "id": 27,
+      "line": 168,
+      "kind": "arith"
+    },
+    {
+      "id": 28,
+      "line": 226,
+      "kind": "arith"
+    },
+    {
+      "id": 29,
+      "line": 300,
+      "kind": "not"
+    },
+    {
+      "id": 30,
+      "line": 300,
+      "kind": "compare"
+    },
+    {
+      "id": 31,
+      "line": 304,
+      "kind": "negate"
+    },
+    {
+      "id": 32,
+      "line": 329,
+      "kind": "return"
+    },
+    {
+      "id": 33,
+      "line": 333,
+      "kind": "return"
+    },
+    {
+      "id": 34,
+      "line": 103,
+      "kind": "const"
+    },
+    {
+      "id": 35,
+      "line": 107,
+      "kind": "const"
+    },
+    {
+      "id": 36,
+      "line": 111,
+      "kind": "const"
+    },
+    {
+      "id": 37,
+      "line": 116,
+      "kind": "const"
+    },
+    {
+      "id": 38,
+      "line": 121,
+      "kind": "const"
+    },
+    {
+      "id": 39,
+      "line": 126,
+      "kind": "const"
+    },
+    {
+      "id": 40,
+      "line": 130,
+      "kind": "const"
+    },
+    {
+      "id": 41,
+      "line": 134,
+      "kind": "const"
+    },
+    {
+      "id": 42,
+      "line": 138,
+      "kind": "const"
+    },
+    {
+      "id": 43,
+      "line": 226,
+      "kind": "const"
+    },
+    {
+      "id": 44,
+      "line": 226,
+      "kind": "const"
+    },
+    {
+      "id": 45,
+      "line": 226,
+      "kind": "const"
+    },
+    {
+      "id": 46,
+      "line": 226,
+      "kind": "const"
+    },
+    {
+      "id": 47,
+      "line": 233,
+      "kind": "arith"
+    },
+    {
+      "id": 48,
+      "line": 277,
+      "kind": "arith"
+    },
+    {
+      "id": 49,
+      "line": 305,
+      "kind": "return"
+    },
+    {
+      "id": 50,
+      "line": 328,
+      "kind": "arith"
+    },
+    {
+      "id": 51,
+      "line": 100,
+      "kind": "arith"
+    },
+    {
+      "id": 52,
+      "line": 105,
+      "kind": "arith"
+    },
+    {
+      "id": 53,
+      "line": 109,
+      "kind": "arith"
+    },
+    {
+      "id": 54,
+      "line": 113,
+      "kind": "arith"
+    },
+    {
+      "id": 55,
+      "line": 119,
+      "kind": "arith"
+    },
+    {
+      "id": 56,
+      "line": 124,
+      "kind": "arith"
+    },
+    {
+      "id": 57,
+      "line": 128,
+      "kind": "arith"
+    },
+    {
+      "id": 58,
+      "line": 132,
+      "kind": "arith"
+    },
+    {
+      "id": 59,
+      "line": 136,
+      "kind": "arith"
+    },
+    {
+      "id": 60,
+      "line": 140,
+      "kind": "arith"
+    },
+    {
+      "id": 61,
+      "line": 233,
+      "kind": "const"
+    },
+    {
+      "id": 62,
+      "line": 100,
+      "kind": "arith"
+    },
+    {
+      "id": 63,
+      "line": 102,
+      "kind": "const"
+    },
+    {
+      "id": 64,
+      "line": 102,
+      "kind": "const"
+    },
+    {
+      "id": 65,
+      "line": 168,
+      "kind": "const"
+    },
+    {
+      "id": 66,
+      "line": 230,
+      "kind": "const"
+    },
+    {
+      "id": 67,
+      "line": 231,
+      "kind": "const"
+    },
+    {
+      "id": 68,
+      "line": 232,
+      "kind": "const"
+    },
+    {
+      "id": 69,
+      "line": 100,
+      "kind": "arith"
+    },
+    {
+      "id": 70,
+      "line": 104,
+      "kind": "const"
+    },
+    {
+      "id": 71,
+      "line": 108,
+      "kind": "const"
+    },
+    {
+      "id": 72,
+      "line": 112,
+      "kind": "const"
+    },
+    {
+      "id": 73,
+      "line": 168,
+      "kind": "const"
+    },
+    {
+      "id": 74,
+      "line": 199,
+      "kind": "const"
+    },
+    {
+      "id": 75,
+      "line": 200,
+      "kind": "const"
+    },
+    {
+      "id": 76,
+      "line": 374,
+      "kind": "const"
+    },
+    {
+      "id": 77,
+      "line": 104,
+      "kind": "const"
+    },
+    {
+      "id": 78,
+      "line": 105,
+      "kind": "const"
+    },
+    {
+      "id": 79,
+      "line": 108,
+      "kind": "const"
+    },
+    {
+      "id": 80,
+      "line": 109,
+      "kind": "const"
+    },
+    {
+      "id": 81,
+      "line": 112,
+      "kind": "const"
+    },
+    {
+      "id": 82,
+      "line": 113,
+      "kind": "const"
+    },
+    {
+      "id": 83,
+      "line": 119,
+      "kind": "const"
+    },
+    {
+      "id": 84,
+      "line": 124,
+      "kind": "const"
+    },
+    {
+      "id": 85,
+      "line": 128,
+      "kind": "const"
+    },
+    {
+      "id": 86,
+      "line": 132,
+      "kind": "const"
+    },
+    {
+      "id": 87,
+      "line": 136,
+      "kind": "const"
+    },
+    {
+      "id": 88,
+      "line": 140,
+      "kind": "const"
+    },
+    {
+      "id": 89,
+      "line": 166,
+      "kind": "const"
+    },
+    {
+      "id": 90,
+      "line": 117,
+      "kind": "const"
+    },
+    {
+      "id": 91,
+      "line": 118,
+      "kind": "const"
+    },
+    {
+      "id": 92,
+      "line": 119,
+      "kind": "const"
+    },
+    {
+      "id": 93,
+      "line": 122,
+      "kind": "const"
+    },
+    {
+      "id": 94,
+      "line": 123,
+      "kind": "const"
+    },
+    {
+      "id": 95,
+      "line": 124,
+      "kind": "const"
+    },
+    {
+      "id": 96,
+      "line": 127,
+      "kind": "const"
+    },
+    {
+      "id": 97,
+      "line": 127,
+      "kind": "const"
+    },
+    {
+      "id": 98,
+      "line": 128,
+      "kind": "const"
+    },
+    {
+      "id": 99,
+      "line": 131,
+      "kind": "const"
+    },
+    {
+      "id": 100,
+      "line": 131,
+      "kind": "const"
+    },
+    {
+      "id": 101,
+      "line": 132,
+      "kind": "const"
+    },
+    {
+      "id": 102,
+      "line": 135,
+      "kind": "const"
+    },
+    {
+      "id": 103,
+      "line": 135,
+      "kind": "const"
+    },
+    {
+      "id": 104,
+      "line": 136,
+      "kind": "const"
+    },
+    {
+      "id": 105,
+      "line": 139,
+      "kind": "const"
+    },
+    {
+      "id": 106,
+      "line": 139,
+      "kind": "const"
+    },
+    {
+      "id": 107,
+      "line": 140,
+      "kind": "const"
+    }
+  ],
+  "mode": "baseline",
+  "rounds": [
+    {
+      "round": 0,
+      "score": 88.88888888888889,
+      "killed": 96,
+      "survived": 12,
+      "accepted": true,
+      "note": "baseline",
+      "tokens_used": 0,
+      "survivors": [
+        24,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        63,
+        64
+      ],
+      "triaged": []
+    },
+    {
+      "round": 1,
+      "score": 88.88888888888889,
+      "killed": 96,
+      "survived": 12,
+      "accepted": false,
+      "note": "rejected: tests fail on the original code",
+      "tokens_used": 20413,
+      "survivors": [
+        24,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        63,
+        64
+      ],
+      "triaged": []
+    },
+    {
+      "round": 2,
+      "score": 88.88888888888889,
+      "killed": 96,
+      "survived": 12,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 32949,
+      "survivors": [
+        24,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        63,
+        64
+      ],
+      "triaged": []
+    }
+  ],
+  "models": {
+    "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "strong": "nvidia/nemotron-3-super-120b-a12b"
+  }
+}

@@ -13,7 +13,8 @@ dependencies = ["openai>=1.40"]
 
 [project.optional-dependencies]
 web = ["fastapi>=0.110", "uvicorn>=0.29"]
-dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110"]
+examples = ["text-unidecode>=1.3"]
+dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "text-unidecode>=1.3"]
 
 [project.scripts]
 mutagent = "mutagent.cli:main"

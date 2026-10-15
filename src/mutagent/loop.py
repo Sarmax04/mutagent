@@ -61,6 +61,7 @@ class RoundResult:
     note: str
     tokens_used: int
     survivors: list[int] = field(default_factory=list)  # ids of mutants still alive
+    triaged: list[int] = field(default_factory=list)  # survivors the FAST model judged equivalent
 
 
 @dataclass
@@ -73,6 +74,7 @@ class LoopReport:
     generated_path: str | None = None
     generated_code: str = ""
     mutants: list[dict] = field(default_factory=list)  # {"id", "line", "kind"}
+    mode: str = "guided"  # guided (survivor feedback loop) | baseline (same loop, no mutant feedback)
     rounds: list[RoundResult] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -105,7 +107,8 @@ def build_messages(
     current_generated: str,
     survivors: list[Mutant],
     last_error: str | None,
-    max_diffs: int = 12,
+    max_diffs: int = 30,
+    guided: bool = True,
 ) -> list[dict[str, str]]:
     diffs = "\n\n".join(
         f"### Mutant {m.id} (line {m.lineno}, {m.kind})\n{m.diff}"
@@ -135,14 +138,23 @@ def build_messages(
             current_generated.rstrip(),
             "```",
         ]
-    parts += [
-        "",
-        "## Surviving mutants",
-        "Each diff is a small bug that NO current test detects. Write tests that "
-        "pass on the original source and fail on these mutants.",
-        "",
-        diffs,
-    ]
+    if guided:
+        parts += [
+            "",
+            "## Surviving mutants",
+            "Each diff is a small bug that NO current test detects. Write tests that "
+            "pass on the original source and fail on these mutants.",
+            "",
+            diffs,
+        ]
+    else:
+        parts += [
+            "",
+            "## Task",
+            "Write a thorough pytest test file for this module: exact expected values, "
+            "exact exception types, and boundary values on both sides of every "
+            "comparison. You are not told which bugs the current tests miss.",
+        ]
     if last_error:
         parts += [
             "",
@@ -156,7 +168,8 @@ def build_messages(
     parts += [
         "",
         f"Return the COMPLETE contents of `{GENERATED_REL}` in a single ```python "
-        "block and nothing else of substance.",
+        "block and nothing else of substance. Do not copy the existing hand-written "
+        "tests into it, and keep it to the tests that matter (at most about 15 test functions).",
     ]
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -208,6 +221,42 @@ def prune_tests(code: str, names: Sequence[str]) -> str | None:
     return "".join(lines).rstrip() + "\n"
 
 
+_COLLECTION = re.compile(r"errors? during collection|ERROR collecting|^ERROR\s+\S+\.py", re.MULTILINE)
+
+
+def collection_failed(output: str) -> bool:
+    """True when pytest could not even import the test files (bad import, syntax error, ...)."""
+    return bool(_COLLECTION.search(output))
+
+
+def syntax_problem(code: str) -> str | None:
+    """A one-line description of a syntax error in ``code``, or None if it parses."""
+    try:
+        ast.parse(code)
+    except SyntaxError as exc:
+        return f"{type(exc).__name__}: {exc.msg} (line {exc.lineno})"
+    return None
+
+
+def repair(llm: ChatModel, messages: list[dict[str, str]], code: str, error: str) -> str | None:
+    """Ask the STRONG model once to fix a test file that could not even be loaded."""
+    follow_up = [
+        *messages,
+        {"role": "assistant", "content": "```python\n" + code.rstrip() + "\n```"},
+        {
+            "role": "user",
+            "content": (
+                "That file could not be loaded:\n```\n" + error.strip()[-1200:] + "\n```\n"
+                "Return the COMPLETE corrected file in one ```python block. Change only what is needed."
+            ),
+        },
+    ]
+    try:
+        return extract_code(llm.complete(Tier.STRONG, follow_up))
+    except BudgetExceeded:
+        return None
+
+
 def triage_equivalent(llm: ChatModel, survivors: list[Mutant]) -> set[int]:
     """Ask the FAST model which survivors are probably equivalent (unkillable).
 
@@ -237,9 +286,13 @@ def triage_equivalent(llm: ChatModel, survivors: list[Mutant]) -> set[int]:
         return set()
     valid = {m.id for m in survivors}
     try:
-        return {int(i) for i in json.loads(match.group(0)) if int(i) in valid}
+        ids = {int(i) for i in json.loads(match.group(0)) if int(i) in valid}
     except (ValueError, TypeError):
         return set()
+    if len(ids) > max(1, len(survivors) // 2):
+        # Implausible: most survivors are real bugs. Ignore the small model's verdict.
+        return set()
+    return ids
 
 
 def selection(work: Path, tests: Sequence[str], generated_rel: str) -> list[str]:
@@ -306,8 +359,13 @@ def run_loop(
     tests: Sequence[str] = (),
     on_round: Callable[[RoundResult], None] | None = None,
     code_filter: Callable[[str], list[str]] | None = None,
+    guided: bool = True,
 ) -> LoopReport:
     """Run the agent loop.
+
+    ``guided=False`` is the comparison baseline: the same loop and the same acceptance
+    rule, but the model is never shown which mutants survive. It only sees the
+    project, its own earlier tests and any failure output.
 
     ``on_round`` is called after the baseline and after every round (for live UIs).
     ``code_filter`` receives each candidate test file and returns a list of problems;
@@ -318,7 +376,7 @@ def run_loop(
     try:
         return _run(
             project, work, target, llm, max_rounds, patience, test_timeout,
-            triage, generated_rel, write_back, log, tests, on_round, code_filter,
+            triage, generated_rel, write_back, log, tests, on_round, code_filter, guided,
         )
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
@@ -339,6 +397,7 @@ def _run(
     tests: Sequence[str],
     on_round: Callable[[RoundResult], None] | None,
     code_filter: Callable[[str], list[str]] | None,
+    guided: bool = True,
 ) -> LoopReport:
     source = (work / target).read_text(encoding="utf-8")
     mutants = generate_mutants(source)
@@ -351,6 +410,8 @@ def _run(
 
     generated = work / generated_rel
     generated.parent.mkdir(parents=True, exist_ok=True)
+    if not guided and generated.exists():
+        generated.unlink()  # the baseline starts from the project's own tests only
     current = generated.read_text(encoding="utf-8") if generated.exists() else ""
     module = module_name(target)
 
@@ -375,6 +436,7 @@ def _run(
         initial_score=best,
         final_score=best,
         mutants=[{"id": m.id, "line": m.lineno, "kind": m.kind} for m in mutants],
+        mode="guided" if guided else "baseline",
     )
 
     def alive() -> list[int]:
@@ -399,8 +461,12 @@ def _run(
 
         before = spent()
         try:
-            skip = triage_equivalent(llm, survivors) if triage else set()
+            skip = triage_equivalent(llm, survivors) if (triage and guided) else set()
+            if skip:
+                log(f"round {rnd}: the FAST model judged {len(skip)} survivor(s) equivalent: {sorted(skip)}")
             shown = [m for m in survivors if m.id not in skip] or survivors
+            if not guided:
+                shown = []
             messages = build_messages(
                 module,
                 source,
@@ -408,6 +474,7 @@ def _run(
                 current,
                 shown,
                 last_error,
+                guided=guided,
             )
             reply = llm.complete(Tier.STRONG, messages)
         except BudgetExceeded as exc:
@@ -419,8 +486,14 @@ def _run(
             log(f"round {rnd}: stopped, {exc}")
             break
 
-        used = spent() - before
         code = extract_code(reply)
+        repaired = False
+        if code is not None:
+            problem = syntax_problem(code)
+            if problem:
+                log(f"round {rnd}: the reply has a {problem}; asking the model to fix it once")
+                repaired = True
+                code = repair(llm, messages, code, problem) or code
         problems = code_filter(code) if (code is not None and code_filter) else []
         if code is None:
             info = getattr(llm, "last_info", "")
@@ -438,6 +511,15 @@ def _run(
             dropped = 0
             generated.write_text(code, encoding="utf-8")
             check = run_tests(work, test_timeout, selection(work, tests, generated_rel))
+            if not check.passed and not check.timed_out and not repaired and collection_failed(check.output):
+                # pytest could not even collect the file (bad import, syntax error, ...)
+                log(f"round {rnd}: pytest could not load the new tests; asking the model to fix it once")
+                repaired = True
+                fixed = repair(llm, messages, code, check.output)
+                if fixed and not syntax_problem(fixed) and not (code_filter and code_filter(fixed)):
+                    code = fixed
+                    generated.write_text(code, encoding="utf-8")
+                    check = run_tests(work, test_timeout, selection(work, tests, generated_rel))
             if not check.passed:
                 # One wrong expectation should not throw away the good tests: drop
                 # only the failing test functions and re-check the rest.
@@ -451,6 +533,10 @@ def _run(
                         dropped = len(names)
                         log(f"round {rnd}: dropped {len(names)} failing test(s): {', '.join(names)}")
                         code, check = pruned, recheck
+                    else:
+                        log(f"round {rnd}: dropping {', '.join(names)} was not enough. Output (last part):\n{recheck.output.strip()[-800:]}")
+                elif names is None:
+                    log(f"round {rnd}: the failures could not be pinned on single test functions, so nothing was dropped")
             if not check.passed:
                 restore()
                 last_error = check.output
@@ -471,12 +557,14 @@ def _run(
                     note, accepted = "accepted: score improved", True
                     if dropped:
                         note += f" ({dropped} failing test(s) dropped)"
+                    if repaired:
+                        note += " (after one repair)"
                 else:
                     restore()
                     note, accepted = "rejected: no score improvement", False
                     stale += 1
 
-        add(RoundResult(rnd, best, killed, survived, accepted, note, used, alive()))
+        add(RoundResult(rnd, best, killed, survived, accepted, note, spent() - before, alive(), sorted(skip)))
         log(f"round {rnd}: score {best:.1f}% ({killed} killed / {survived} survived) {note}")
         if stale >= patience:
             log(f"stopping: no progress for {patience} rounds")
