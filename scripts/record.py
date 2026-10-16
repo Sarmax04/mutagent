@@ -58,6 +58,7 @@ def main() -> int:
         guided = base + ["run", *common, "--rounds", str(args.rounds), "--report", f"replays/{preset.id}.json"]
         if not args.no_triage:
             guided.append("--triage")
+        guided.append("--explain")
         failures += run(guided) != 0
         if not args.skip_baseline:
             blind = base + ["baseline", *common, "--rounds", str(args.rounds), "--report", f"replays/{preset.id}-baseline.json"]

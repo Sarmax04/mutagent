@@ -26,10 +26,12 @@ def render_markdown(data: dict) -> str:
     by_id = {m["id"]: m for m in data.get("mutants", [])}
     lines += ["", "## Bugs still alive", ""]
     if alive:
-        lines += ["| Mutant | Line | Kind |", "|---|---|---|"]
+        why = data.get("explanations", {})
+        lines += ["| Mutant | Line | Kind | Why it survived |", "|---|---|---|---|"]
         for i in sorted(alive):
             m = by_id.get(i, {})
-            lines.append(f"| #{i} | {m.get('line', '?')} | {m.get('kind', '?')} |")
+            note = why.get(str(i), "").replace("|", "/")
+            lines.append(f"| #{i} | {m.get('line', '?')} | {m.get('kind', '?')} | {note} |")
         lines += ["", "Some of these may be equivalent mutants: changes that no test can ever tell apart."]
     else:
         lines.append("None. Every planted bug was caught.")

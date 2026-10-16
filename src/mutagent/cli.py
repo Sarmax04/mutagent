@@ -51,6 +51,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--rounds", type=int, default=4)
     p.add_argument("--budget", type=int, help="token cap; overrides NEBIUS_TOKEN_BUDGET")
     p.add_argument("--triage", action="store_true", help="use the FAST model to skip likely-equivalent mutants")
+    p.add_argument("--explain", action="store_true", help="use the FAST model to explain each surviving bug in one line")
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--report", default="mutagent_report.json")
     p.add_argument("--min-score", type=float, help="exit with code 4 if the final score is below this (for CI)")
@@ -139,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
             test_timeout=args.test_timeout,
             triage=args.triage if args.cmd == "run" else False,
             guided=args.cmd == "run",
+            explain=args.explain if args.cmd == "run" else False,
             write_back=not args.no_write_back,
             tests=args.tests,
         )

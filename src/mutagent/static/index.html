@@ -213,6 +213,11 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
   <h2>Rounds</h2>
   <ol class="round-list" id="rounds-list"><li class="empty" style="padding:12px 0">Nothing has run yet.</li></ol>
 
+  <section id="left" hidden>
+    <h2>Bugs that got away</h2>
+    <ul class="round-list" id="left-list"></ul>
+  </section>
+
   <div class="code-head">
     <h2>Tests the agent wrote</h2>
     <span>
@@ -367,7 +372,29 @@ function renderRounds(rounds, upto) {
   });
 }
 
+function showLeft(report) {
+  const list = $("#left-list");
+  list.textContent = "";
+  const rounds = (report && report.rounds) || [];
+  const alive = rounds.length ? rounds[rounds.length - 1].survivors || [] : [];
+  const byId = {};
+  ((report && report.mutants) || []).forEach((m) => { byId[m.id] = m; });
+  const why = (report && report.explanations) || {};
+  alive.forEach((id) => {
+    const m = byId[id] || {};
+    const li = document.createElement("li");
+    li.style.padding = "8px 0";
+    const head = document.createElement("strong");
+    head.textContent = "Line " + (m.line || "?") + " (" + (m.kind || "change") + ")";
+    li.appendChild(head);
+    li.appendChild(document.createTextNode(why[String(id)] ? ": " + why[String(id)] : ""));
+    list.appendChild(li);
+  });
+  $("#left").hidden = alive.length === 0;
+}
+
 function showCode(report) {
+  showLeft(report);
   const code = (report && report.generated_code) || "";
   app.code = code;
   $("#code").firstElementChild.textContent = code || "No new tests were kept in this run.";

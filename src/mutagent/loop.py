@@ -76,6 +76,7 @@ class LoopReport:
     mutants: list[dict] = field(default_factory=list)  # {"id", "line", "kind"}
     mode: str = "guided"  # guided (survivor feedback loop) | baseline (same loop, no mutant feedback)
     rounds: list[RoundResult] = field(default_factory=list)
+    explanations: dict[str, str] = field(default_factory=dict)  # surviving mutant id -> one line
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -295,6 +296,46 @@ def triage_equivalent(llm: ChatModel, survivors: list[Mutant]) -> set[int]:
     return ids
 
 
+def explain_survivors(
+    llm: ChatModel, survivors: list[Mutant], limit: int = 12
+) -> dict[str, str]:
+    """Ask the FAST model for one plain sentence per surviving bug: why no test caught it.
+
+    Best effort: a reply that cannot be parsed gives no explanations.
+    """
+    shown = survivors[:limit]
+    if not shown:
+        return {}
+    listing = "\n\n".join(f"### Mutant {m.id} (line {m.lineno}, {m.kind})\n{m.diff}" for m in shown)
+    messages = [
+        {"role": "system", "content": "You explain gaps in a test suite to a developer, briefly and concretely."},
+        {
+            "role": "user",
+            "content": (
+                "Each mutant below is a small planted bug that the tests did NOT catch. "
+                "For each one, write ONE short sentence saying what input or check the tests "
+                "are missing, or that the change cannot alter behaviour at all (equivalent). "
+                'Reply with only a JSON object mapping the mutant id to its sentence, e.g. {"3": "..."}.\n\n'
+                + listing
+            ),
+        },
+    ]
+    reply = llm.complete(Tier.FAST, messages)
+    match = re.search(r"\{.*\}", reply, re.DOTALL)
+    if not match:
+        return {}
+    try:
+        raw = json.loads(match.group(0))
+    except ValueError:
+        return {}
+    valid = {str(m.id) for m in shown}
+    return {
+        str(k): " ".join(str(v).split())[:240]
+        for k, v in raw.items()
+        if str(k) in valid and isinstance(v, str) and v.strip()
+    }
+
+
 def selection(work: Path, tests: Sequence[str], generated_rel: str) -> list[str]:
     """Pytest arguments: the chosen test files plus the generated file once it exists.
 
@@ -360,6 +401,7 @@ def run_loop(
     on_round: Callable[[RoundResult], None] | None = None,
     code_filter: Callable[[str], list[str]] | None = None,
     guided: bool = True,
+    explain: bool = False,
 ) -> LoopReport:
     """Run the agent loop.
 
@@ -376,7 +418,7 @@ def run_loop(
     try:
         return _run(
             project, work, target, llm, max_rounds, patience, test_timeout,
-            triage, generated_rel, write_back, log, tests, on_round, code_filter, guided,
+            triage, generated_rel, write_back, log, tests, on_round, code_filter, guided, explain,
         )
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
@@ -398,6 +440,7 @@ def _run(
     on_round: Callable[[RoundResult], None] | None,
     code_filter: Callable[[str], list[str]] | None,
     guided: bool = True,
+    explain: bool = False,
 ) -> LoopReport:
     source = (work / target).read_text(encoding="utf-8")
     mutants = generate_mutants(source)
@@ -572,6 +615,13 @@ def _run(
 
     report.final_score = best
     report.generated_code = current
+    if explain and alive():
+        try:
+            left = [m for m in mutants if m.id in set(alive())]
+            report.explanations = explain_survivors(llm, left)
+            log(f"explained {len(report.explanations)} surviving bug(s)")
+        except BudgetExceeded:
+            log("no budget left to explain the surviving bugs")
     report.tokens_used = spent() - start_tokens
     if write_back and current:
         out = project / generated_rel

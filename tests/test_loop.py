@@ -325,3 +325,21 @@ def test_triage_ignores_implausible_verdict():
 
     ms = [Mutant(id=i, lineno=i, kind="compare", diff="d", source="x") for i in (1, 2, 3, 4)]
     assert triage_equivalent(AllLLM(), ms) == set()
+
+
+def test_explain_survivors_parses_and_filters():
+    from mutagent.loop import explain_survivors
+    from mutagent.mutation import Mutant
+
+    class L:
+        def complete(self, tier, messages):
+            return 'Sure: {"1": "No test uses a negative value.", "9": "unknown id", "2": ""}'
+
+    ms = [Mutant(id=i, lineno=i, kind="compare", diff="d", source="x") for i in (1, 2)]
+    assert explain_survivors(L(), ms) == {"1": "No test uses a negative value."}
+
+
+def test_run_loop_stores_explanations(project):
+    llm = FakeLLM([fenced(STRONG_TESTS)], triage_reply='{"1": "x"}')
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet, explain=True)
+    assert Tier.FAST in llm.calls and isinstance(report.explanations, dict)
