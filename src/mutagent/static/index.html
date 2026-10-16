@@ -215,7 +215,10 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
 
   <div class="code-head">
     <h2>Tests the agent wrote</h2>
-    <button class="copy" id="copy" type="button" disabled>Copy tests</button>
+    <span>
+      <button class="copy" id="copy" type="button" disabled>Copy tests</button>
+      <button class="copy" id="download" type="button" disabled>Download test file</button>
+    </span>
   </div>
   <pre id="code"><code>The tests appear here once a run finishes.</code></pre>
 
@@ -369,6 +372,7 @@ function showCode(report) {
   app.code = code;
   $("#code").firstElementChild.textContent = code || "No new tests were kept in this run.";
   $("#copy").disabled = !code;
+  $("#download").disabled = !code;
 }
 
 function showLog(lines) {
@@ -575,6 +579,17 @@ async function init() {
     loadPreview();
   }));
   $("#go").addEventListener("click", () => (app.mode === "live" ? startLive() : playRecording()));
+  $("#download").addEventListener("click", () => {
+    if (!app.code) return;
+    const url = URL.createObjectURL(new Blob([app.code + "\n"], { type: "text/x-python" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "test_mutagent_generated.py";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
   $("#copy").addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(app.code);

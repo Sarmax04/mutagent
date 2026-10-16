@@ -39,6 +39,11 @@ def _parser() -> argparse.ArgumentParser:
     common(p)
     tests_opt(p)
     p.add_argument("--test-timeout", type=float, default=20.0)
+    p.add_argument("--min-score", type=float, help="exit with code 4 if the score is below this (for CI)")
+
+    p = sub.add_parser("report", help="turn a saved JSON report into a Markdown report")
+    p.add_argument("report_file", help="JSON report written by `run` or `baseline`")
+    p.add_argument("--out", help="write here instead of printing")
 
     p = sub.add_parser("run", help="run the agent loop")
     common(p)
@@ -48,6 +53,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--triage", action="store_true", help="use the FAST model to skip likely-equivalent mutants")
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--report", default="mutagent_report.json")
+    p.add_argument("--min-score", type=float, help="exit with code 4 if the final score is below this (for CI)")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
 
     p = sub.add_parser(
@@ -68,12 +74,36 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _gate(score: float, minimum: float | None) -> int:
+    """Exit code 4 when a required minimum score is not reached."""
+    if minimum is not None and score < minimum:
+        print(f"FAIL: score {score:.1f}% is below the required {minimum:.1f}%", file=sys.stderr)
+        return 4
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.cmd == "serve":
         from .web import serve
 
         serve(args.host, args.port)
+        return 0
+    if args.cmd == "report":
+        from .report import render_markdown
+
+        try:
+            data = json.loads(Path(args.report_file).read_text(encoding="utf-8"))
+            text = render_markdown(data)
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"error: cannot read report: {exc}", file=sys.stderr)
+            return 2
+        if args.out:
+            Path(args.out).write_text(text, encoding="utf-8")
+            print(f"wrote {args.out}")
+        else:
+            sys.stdout.reconfigure(encoding="utf-8")
+            print(text)
         return 0
     project = Path(args.project)
     if not (project / args.target).is_file():
@@ -95,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             for m in mutants:
                 if statuses[m.id] == "survived":
                     print(f"  survived #{m.id} line {m.lineno} {m.kind}")
-            return 0
+            return _gate(mutation_score(statuses), args.min_score)
 
         load_dotenv(Path(".env"))
         settings = Settings.from_env()
@@ -133,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         f"\nscore {report.initial_score:.1f}% -> {report.final_score:.1f}% "
         f"using {report.tokens_used} tokens; report: {args.report}"
     )
-    return 0
+    return _gate(report.final_score, getattr(args, "min_score", None))
 
 
 if __name__ == "__main__":

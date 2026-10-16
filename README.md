@@ -116,6 +116,27 @@ The page shows every planted bug as a circle (hollow = slipped through, filled =
 
 Container image (deployed on Render; the Dockerfile listens on `$PORT`, default 8000): `docker build -t mutagent .`, then `docker run -p 8000:8000 --env-file .env mutagent`. It runs as an unprivileged user with `MUTAGENT_LIMITS=1`.
 
+## Use it in CI
+
+`mutagent score` needs no API key, so it can gate a pull request: it fails (exit code 4) when the tests are too weak.
+
+```yaml
+# .github/workflows/mutation-gate.yml
+name: mutation-gate
+on: [pull_request]
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install pytest "git+https://github.com/Sarmax04/mutagent" 
+      - run: mutagent score --project . --target src/yourpkg/module.py --min-score 85
+```
+
+To let the agent strengthen the tests, run `mutagent run ... --min-score 85` with `NEBIUS_API_KEY` set as a secret, then turn the saved JSON into a readable report with `mutagent report mutagent_report.json --out report.md`. The web demo also has a "Download test file" button.
+
 ## Results
 
 Real runs against Nebius Token Factory (NVIDIA Nemotron models), 3 rounds at most. Each row compares the survivor-guided agent with the baseline run (same loop, same model, no bug feedback). Recorded in `replays/` and playable in the web demo.
