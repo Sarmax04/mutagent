@@ -27,11 +27,13 @@ from pydantic import BaseModel, Field
 from .llm import ChatModel, ConfigError, api_error_message, NebiusChat, Settings, TokenBudget, load_dotenv
 from .loop import BaselineFailing, RoundResult, run_loop
 from .presets import PRESETS, Preset, get_preset, project_path, replays_dir
+from .scan import discover_targets
 from .safety import screen_test_code
 
 log = logging.getLogger("mutagent.web")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MAX_STORED_RUNS = 20
+LOCAL_MAX_ROUNDS = 8
 
 
 @dataclass(frozen=True)
@@ -113,8 +115,10 @@ class RunManager:
         llm_factory: Callable[[], ChatModel] | None,
         limits: Limits,
         models: dict[str, str] | None = None,
+        local_factory: Callable[[], ChatModel] | None = None,
     ) -> None:
         self._factory = llm_factory
+        self._local_factory = local_factory
         self.limits = limits
         self.models = models or {}
         self._lock = threading.Lock()
@@ -126,6 +130,10 @@ class RunManager:
     @property
     def live_enabled(self) -> bool:
         return self._factory is not None
+
+    @property
+    def local_enabled(self) -> bool:
+        return self._local_factory is not None
 
     def _roll_day(self) -> None:  # caller holds the lock
         today = datetime.now(timezone.utc).date()
@@ -142,6 +150,7 @@ class RunManager:
                 "runs_left_today": max(self.limits.max_runs_per_day - self._count, 0),
                 "run_token_budget": self.limits.run_token_budget,
                 "models": self.models,
+                "local": self.local_enabled,
             }
 
     def get(self, run_id: str) -> RunState | None:
@@ -167,27 +176,55 @@ class RunManager:
         threading.Thread(target=self._work, args=(state, preset), daemon=True).start()
         return state
 
-    def _work(self, state: RunState, preset: Preset) -> None:
+    def start_local(self, project: Path, target: str, tests: list[str], rounds: int) -> RunState:
+        """A run on the person's own project. Only offered by ``mutagent serve --local``."""
+        if self._local_factory is None:
+            raise LiveUnavailable()
+        rounds = max(1, min(rounds, LOCAL_MAX_ROUNDS))
+        with self._lock:
+            if self._active is not None:
+                raise Busy()
+            state = RunState(id=uuid4().hex[:12], preset="local", rounds_requested=rounds)
+            self._active = state.id
+            self._runs[state.id] = state
+            while len(self._runs) > MAX_STORED_RUNS:
+                self._runs.popitem(last=False)
+        job = (project, target, tests)
+        threading.Thread(target=self._work, args=(state, None, job), daemon=True).start()
+        return state
+
+    def _work(self, state: RunState, preset: Preset | None, job: tuple | None = None) -> None:
         try:
-            llm = self._factory()  # type: ignore[misc]
+            if job is not None:
+                llm = self._local_factory()  # type: ignore[misc]
+                project, target, tests = job
+            else:
+                llm = self._factory()  # type: ignore[misc]
+                project, target, tests = project_path(preset), preset.target, preset.tests  # type: ignore[union-attr]
             state.status = "running"
             report = run_loop(
-                project_path(preset),
-                preset.target,
+                project,
+                target,
                 llm,
                 max_rounds=state.rounds_requested,
                 test_timeout=self.limits.test_timeout,
                 write_back=False,
                 log=state.log.append,
-                tests=preset.tests,
+                tests=tests,
                 on_round=state.add_round,
                 code_filter=screen_test_code,
+                explain=True,
             )
             state.report = report.to_dict()
             state.status = "done"
         except BaselineFailing:
-            log.exception("preset %s fails its own tests on this server", preset.id)
-            state.error = "This preset's own tests fail on the server, so it can't be scored."
+            log.exception("the project fails its own tests")
+            state.error = (
+                "Your project's own tests fail before any bug is planted, so it can't be scored. "
+                "Fix them first."
+                if job is not None
+                else "This preset's own tests fail on the server, so it can't be scored."
+            )
             state.status = "error"
         except Exception as exc:  # noqa: BLE001 - report any failure to the visitor
             log.exception("live run %s failed", state.id)
@@ -200,23 +237,49 @@ class RunManager:
                 self._active = None
 
 
+class LocalRunRequest(BaseModel):
+    project: str = Field(min_length=1, max_length=500)
+    target: str = Field(min_length=1, max_length=300)
+    tests: list[str] = Field(default_factory=list, max_length=20)
+    rounds: int = Field(default=4, ge=1, le=20)
+
+
+class LocalProjectRequest(BaseModel):
+    project: str = Field(min_length=1, max_length=500)
+
+
+def _inside(root: Path, relative: str) -> Path | None:
+    """``root / relative`` as a resolved file path, or None if it escapes ``root``."""
+    candidate = (root / relative).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
+
 class RunRequest(BaseModel):
     preset: str
     rounds: int = Field(default=2, ge=1, le=20)
 
 
-def _live_from_env(limits: Limits) -> tuple[Callable[[], ChatModel] | None, dict[str, str]]:
+def _live_from_env(
+    limits: Limits,
+) -> tuple[Callable[[], ChatModel] | None, dict[str, str], Callable[[], ChatModel] | None]:
     load_dotenv(Path(".env"))
     try:
         settings = Settings.from_env()
     except ConfigError:
-        return None, {}
+        return None, {}, None
     budget = min(limits.run_token_budget, settings.token_budget)
 
     def factory() -> ChatModel:
         return NebiusChat(settings, TokenBudget(budget))
 
-    return factory, {"fast": settings.model_fast, "strong": settings.model_strong}
+    def local_factory() -> ChatModel:  # your own key, your own machine: the .env budget applies
+        return NebiusChat(settings, TokenBudget(settings.token_budget))
+
+    return factory, {"fast": settings.model_fast, "strong": settings.model_strong}, local_factory
 
 
 def create_app(
@@ -224,13 +287,17 @@ def create_app(
     limits: Limits | None = None,
     models: dict[str, str] | None = None,
     auto_configure: bool = True,
+    local: bool = False,
+    local_factory: Callable[[], ChatModel] | None = None,
 ) -> FastAPI:
     """Build the app. Live runs are enabled when ``llm_factory`` is given, or (with
     ``auto_configure``) when the Nebius settings are present in the environment/.env."""
     limits = limits or Limits.from_env()
     if llm_factory is None and auto_configure:
-        llm_factory, models = _live_from_env(limits)
-    manager = RunManager(llm_factory, limits, models)
+        llm_factory, models, env_local = _live_from_env(limits)
+        local_factory = local_factory or env_local
+    # The "your own code" panel exists only when asked for (serve --local), never on a hosted server.
+    manager = RunManager(llm_factory, limits, models, local_factory if local else None)
 
     app = FastAPI(title="MutAgent", docs_url=None, redoc_url=None)
     app.state.manager = manager
@@ -294,6 +361,49 @@ def create_app(
             raise HTTPException(429, "The daily limit for live runs is used up. Watch the recording instead.")
         return {"id": state.id}
 
+    @app.post("/api/local/targets")
+    def local_targets(body: LocalProjectRequest) -> dict:
+        if not manager.local_enabled:
+            raise HTTPException(404, "Not available on this server.")
+        root = Path(body.project).expanduser().resolve()
+        if not root.is_dir():
+            raise HTTPException(400, f"{body.project} is not a folder on this computer.")
+        targets = discover_targets(root)
+        if not targets:
+            raise HTTPException(400, "No Python modules were found in that folder.")
+        tests = sorted(
+            p.relative_to(root).as_posix()
+            for p in root.rglob("test_*.py")
+            if not any(part.startswith(".") or part in {"node_modules", "site-packages"} for part in p.parts)
+        )
+        return {"project": str(root), "targets": targets[:200], "tests": tests[:200]}
+
+    @app.post("/api/local/runs", status_code=202)
+    def start_local_run(body: LocalRunRequest) -> dict:
+        if not manager.local_enabled:
+            raise HTTPException(
+                503, "Runs on your own code need `mutagent serve --local` and a configured .env."
+            )
+        root = Path(body.project).expanduser().resolve()
+        if not root.is_dir():
+            raise HTTPException(400, f"{body.project} is not a folder on this computer.")
+        target = _inside(root, body.target)
+        if target is None or not target.is_file() or target.suffix != ".py":
+            raise HTTPException(400, "The module must be a .py file inside the project folder.")
+        tests: list[str] = []
+        for name in body.tests:
+            found = _inside(root, name)
+            if found is None or not found.is_file():
+                raise HTTPException(400, f"Test file not found inside the project: {name}")
+            tests.append(found.relative_to(root).as_posix())
+        try:
+            state = manager.start_local(root, target.relative_to(root).as_posix(), tests, body.rounds)
+        except Busy:
+            raise HTTPException(429, "Another run is in progress. Try again in a minute.")
+        except LiveUnavailable:
+            raise HTTPException(503, "Local runs are switched off.")
+        return {"id": state.id}
+
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str) -> dict:
         state = manager.get(run_id)
@@ -304,9 +414,11 @@ def create_app(
     return app
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
+def serve(host: str = "127.0.0.1", port: int = 8000, local: bool = False) -> None:
     try:
         import uvicorn
     except ImportError:
         raise SystemExit('The web demo needs extra packages. Run: pip install -e ".[web]"')
-    uvicorn.run(create_app(), host=host, port=port)
+    if local and host not in ("127.0.0.1", "localhost", "::1"):
+        raise SystemExit("--local lets the page read folders on this computer, so it only runs on 127.0.0.1.")
+    uvicorn.run(create_app(local=local), host=host, port=port)

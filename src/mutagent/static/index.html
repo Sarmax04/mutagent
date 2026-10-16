@@ -82,6 +82,11 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
   padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--plate); color: var(--ink);
 }
 .blurb { margin: 12px 0 0; max-width: 62ch; color: var(--muted); }
+.local { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--plate); display: grid; gap: 10px; }
+.local label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+.local input[type=text], .local select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
+.local .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+.local .row label { flex: 1 1 280px; }
 .hint { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
 #status { margin: 14px 0 0; min-height: 1.55em; }
 #status.error { color: var(--alive); font-weight: 600; }
@@ -179,12 +184,29 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
       <div class="seg">
         <label class="opt"><input type="radio" name="mode" value="replay" checked><span>Recorded run</span></label>
         <label class="opt"><input type="radio" name="mode" value="live" id="mode-live"><span>Live run</span></label>
+        <label class="opt" id="opt-local" hidden><input type="radio" name="mode" value="local" id="mode-local"><span>Your own code</span></label>
       </div>
     </fieldset>
     <label class="rounds-pick" id="rounds-pick" hidden>Rounds
       <select id="rounds"></select>
     </label>
     <button class="go" id="go" type="button">Play recording</button>
+  </section>
+  <section class="local" id="local" hidden aria-label="Run on your own project">
+    <div class="row">
+      <label>Project folder on this computer
+        <input type="text" id="local-project" placeholder="C:\\Users\\you\\code\\myproject" autocomplete="off">
+      </label>
+      <button class="copy" id="local-find" type="button">Find modules</button>
+    </div>
+    <div class="row" id="local-pick" hidden>
+      <label>Module to improve
+        <select id="local-target"></select>
+      </label>
+      <label>Test files to count (none selected: everything pytest finds)
+        <select id="local-tests" multiple size="4"></select>
+      </label>
+    </div>
   </section>
   <p class="blurb" id="blurb"></p>
   <p class="hint" id="hint" hidden></p>
@@ -254,7 +276,7 @@ const KIND = {
   const: "constant changed",
 };
 
-const app = { baseline: null, presets: [], status: null, preset: null, mode: "replay", token: 0, busy: false, total: 0, wells: [], recording: null, code: "" };
+const app = { local: { project: "", ready: false }, baseline: null, presets: [], status: null, preset: null, mode: "replay", token: 0, busy: false, total: 0, wells: [], recording: null, code: "" };
 
 async function api(path, options) {
   const response = await fetch(path, options);
@@ -444,6 +466,7 @@ function liveAllowed() {
 }
 
 function canRun() {
+  if (app.mode === "local") return Boolean(app.status && app.status.local && app.local.ready);
   if (app.mode === "live") return liveAllowed();
   return Boolean(app.recording);
 }
@@ -452,7 +475,8 @@ function updateHint() {
   const hint = $("#hint");
   const s = app.status;
   let text = "";
-  if (!s || !s.live) text = "Live runs are switched off on this server, so only recorded runs are available.";
+  if (app.mode === "local") text = "Runs on this computer with your own API key and token budget from .env.";
+  else if (!s || !s.live) text = "Live runs are switched off on this server, so only recorded runs are available.";
   else if (s.runs_left_today <= 0) text = "Today's live runs are used up. Recorded runs still work.";
   else if (app.mode === "live") text = "A live run calls the model, so it takes a minute or two. Each run is capped at " + s.run_token_budget.toLocaleString() + " tokens.";
   hint.textContent = text;
@@ -464,7 +488,21 @@ async function loadPreview() {
   app.recording = null;
   resetResults();
   say("");
+  $("#local").hidden = app.mode !== "local";
+  $("#presets").parentElement.hidden = app.mode === "local";
+  if (app.mode === "local") {
+    $("#blurb").textContent = "Point the agent at a Python project on this computer. It plants bugs in one module, writes tests with Nemotron, and shows what it caught. Your files are never changed: the tests appear below for you to copy or download.";
+    $("#rounds-pick").hidden = false;
+    fillRounds(8, 4);
+    $("#go").textContent = "Start run on my code";
+    $("#plate-empty").textContent = "Choose a project and a module, then start the run.";
+    showFooter(app.status && app.status.models);
+    updateHint();
+    setBusy(false);
+    return;
+  }
   $("#blurb").textContent = app.preset.blurb;
+  if (app.status) fillRounds(app.status.max_rounds, 2);
   $("#rounds-pick").hidden = app.mode !== "live";
   $("#go").textContent = app.mode === "live" ? "Start live run" : "Play recording";
   updateHint();
@@ -524,17 +562,63 @@ async function playRecording() {
   setBusy(false);
 }
 
+function fillRounds(max, preferred) {
+  const select = $("#rounds");
+  select.replaceChildren();
+  for (let n = 1; n <= max; n++) select.add(new Option(String(n), String(n), false, n === Math.min(preferred, max)));
+}
+
+async function findModules() {
+  const project = $("#local-project").value.trim();
+  if (!project) { say("Type the folder of your project first.", true); return; }
+  say("Looking for Python modules.");
+  app.local.ready = false;
+  $("#local-pick").hidden = true;
+  setBusy(false);
+  try {
+    const data = await api("/api/local/targets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project }),
+    });
+    const target = $("#local-target");
+    target.replaceChildren();
+    data.targets.forEach((t) => target.add(new Option(t, t)));
+    const tests = $("#local-tests");
+    tests.replaceChildren();
+    data.tests.forEach((t) => tests.add(new Option(t, t, false, true)));
+    app.local = { project: data.project, ready: true };
+    $("#local-pick").hidden = false;
+    say("Found " + data.targets.length + " module(s) and " + data.tests.length + " test file(s). Pick one and start.");
+  } catch (error) {
+    say(error.message, true);
+  }
+  setBusy(false);
+}
+
 async function startLive() {
   const token = ++app.token;
   setBusy(true);
   resetResults();
-  say("Scoring the library's own tests.");
+  const own = app.mode === "local";
+  say(own ? "Scoring your project's own tests." : "Scoring the library's own tests.");
   try {
-    const started = await api("/api/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ preset: app.preset.id, rounds: Number($("#rounds").value) }),
-    });
+    const started = own
+      ? await api("/api/local/runs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project: app.local.project,
+            target: $("#local-target").value,
+            tests: Array.from($("#local-tests").selectedOptions).map((o) => o.value),
+            rounds: Number($("#rounds").value),
+          }),
+        })
+      : await api("/api/runs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preset: app.preset.id, rounds: Number($("#rounds").value) }),
+        });
     while (token === app.token) {
       const run = await api("/api/runs/" + started.id);
       if (run.rounds.length) {
@@ -574,6 +658,7 @@ async function refreshStatus() {
     for (let n = 1; n <= app.status.max_rounds; n++) select.add(new Option(String(n), String(n), false, n === Math.min(2, app.status.max_rounds)));
   }
   $("#mode-live").disabled = !liveAllowed();
+  $("#opt-local").hidden = !(app.status && app.status.local);
   updateHint();
 }
 
@@ -605,7 +690,9 @@ async function init() {
     app.mode = document.querySelector("input[name=mode]:checked").value;
     loadPreview();
   }));
-  $("#go").addEventListener("click", () => (app.mode === "live" ? startLive() : playRecording()));
+  $("#go").addEventListener("click", () => (app.mode === "replay" ? playRecording() : startLive()));
+  $("#local-find").addEventListener("click", findModules);
+  $("#local-project").addEventListener("keydown", (event) => { if (event.key === "Enter") findModules(); });
   $("#download").addEventListener("click", () => {
     if (!app.code) return;
     const url = URL.createObjectURL(new Blob([app.code + "\n"], { type: "text/x-python" }));

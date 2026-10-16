@@ -193,3 +193,66 @@ def test_real_presets_pass_their_own_tests():
             assert result.passed, (preset.id, result.output)
         finally:
             shutil.rmtree(work.parent, ignore_errors=True)
+
+
+# ---- "your own code" panel (mutagent serve --local) ----
+
+
+def make_local_client(reply=GOOD_REPLY, local=True):
+    app = create_app(
+        llm_factory=None,
+        limits=Limits(),
+        models={"fast": "f", "strong": "s"},
+        auto_configure=False,
+        local=local,
+        local_factory=lambda: ScriptedModel(reply),
+    )
+    return TestClient(app)
+
+
+@pytest.fixture
+def own_project(tmp_path):
+    root = tmp_path / "mine"
+    (root / "tests").mkdir(parents=True)
+    (root / "m.py").write_text("def inc(a):\n    return a + 1\n")
+    (root / "tests" / "test_m.py").write_text("from m import inc\n\ndef test_inc():\n    assert inc(0) > 0\n")
+    return root
+
+
+def test_local_endpoints_are_absent_unless_local(own_project):
+    client = make_local_client(local=False)
+    assert client.get("/api/status").json()["local"] is False
+    assert client.post("/api/local/targets", json={"project": str(own_project)}).status_code == 404
+    body = {"project": str(own_project), "target": "m.py"}
+    assert client.post("/api/local/runs", json=body).status_code == 503
+
+
+def test_local_targets_lists_modules_and_tests(own_project):
+    client = make_local_client()
+    assert client.get("/api/status").json()["local"] is True
+    data = client.post("/api/local/targets", json={"project": str(own_project)}).json()
+    assert data["targets"] == ["m.py"] and data["tests"] == ["tests/test_m.py"]
+    assert client.post("/api/local/targets", json={"project": str(own_project / "nope")}).status_code == 400
+
+
+def test_local_run_improves_the_score_and_reads_only_inside_the_project(own_project):
+    client = make_local_client()
+    body = {"project": str(own_project), "target": "m.py", "tests": ["tests/test_m.py"], "rounds": 1}
+    run_id = client.post("/api/local/runs", json=body).json()["id"]
+    run = wait_done(client, run_id)
+    assert run["status"] == "done" and run["preset"] == "local"
+    assert run["rounds"][-1]["score"] > run["rounds"][0]["score"]
+    assert "def test_inc_exact" in run["report"]["generated_code"]
+    assert not (own_project / "tests" / "test_mutagent_generated.py").exists()  # nothing written back
+
+
+def test_local_run_rejects_paths_outside_the_project(own_project, tmp_path):
+    (tmp_path / "outside.py").write_text("x = 1\n")
+    client = make_local_client()
+    for target in ("../outside.py", "tests/test_m.txt", "missing.py"):
+        response = client.post("/api/local/runs", json={"project": str(own_project), "target": target})
+        assert response.status_code == 400, target
+    response = client.post(
+        "/api/local/runs", json={"project": str(own_project), "target": "m.py", "tests": ["../outside.py"]}
+    )
+    assert response.status_code == 400

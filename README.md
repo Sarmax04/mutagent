@@ -131,11 +131,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
-      - run: pip install pytest "git+https://github.com/YOUR-USER/mutagent"   # use your repo URL
+      - run: pip install pytest "git+https://github.com/Sarmax04/mutagent"   # use your repo URL
       - run: mutagent score --project . --target src/yourpkg/module.py --min-score 85
 ```
 
 To let the agent strengthen the tests, run `mutagent run ... --min-score 85` with `NEBIUS_API_KEY` set as a secret, then turn the saved JSON into a readable report with `mutagent report mutagent_report.json --out report.md`. The web demo also has a "Download test file" button.
+
+### Try it on your own project (web)
+
+```
+mutagent serve --local
+```
+
+Open http://127.0.0.1:8000 and choose "Your own code". Type the folder of a Python project, press "Find modules", pick a module and the test files that count, and start the run. The page shows the planted bugs, the score after every round, the bugs that got away and the new tests, with buttons to copy or download them. This panel needs your `.env` with a Nebius key, only works on `127.0.0.1`, and never writes into your project. It is not part of the hosted demo.
 
 ### Check a whole project
 

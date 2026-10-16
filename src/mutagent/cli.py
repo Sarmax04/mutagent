@@ -89,6 +89,7 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("serve", help="start the web demo (needs: pip install -e \".[web]\")")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--local", action="store_true", help="add a panel to run the agent on your own project (127.0.0.1 only)")
     return parser
 
 
@@ -163,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "serve":
         from .web import serve
 
-        serve(args.host, args.port)
+        serve(args.host, args.port, local=args.local)
         return 0
     if args.cmd == "report":
         from .report import render_markdown
