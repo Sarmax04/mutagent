@@ -34,6 +34,7 @@ from .mutation import (
 )
 
 GENERATED_REL = "tests/test_mutagent_generated.py"
+NO_GAIN = "NO_GAIN"  # marker for last_error: tests passed but killed nothing new
 
 SYSTEM_PROMPT = (
     "You are an expert Python test engineer. You write deterministic pytest tests "
@@ -41,7 +42,8 @@ SYSTEM_PROMPT = (
     "file-system side effects. Assert exact expected values and exact exception "
     "types, and test boundary values on both sides of every comparison. Before "
     "asserting a value, read the source to see exactly what it returns or raises "
-    "at that input (an input that looks like an edge case may be valid). Keep any "
+    "at that input (an input that looks like an edge case may be valid). Tests run "
+    "only against the real code; never write a test that tries to reproduce a mutant. Keep any "
     "reasoning short. Your reply must be ONE ```python block with the complete "
     "test file; do not explain, and do not think out loud in the reply."
 )
@@ -110,6 +112,7 @@ def build_messages(
     last_error: str | None,
     max_diffs: int = 30,
     guided: bool = True,
+    lessons: str | None = None,
 ) -> list[dict[str, str]]:
     diffs = "\n\n".join(
         f"### Mutant {m.id} (line {m.lineno}, {m.kind})\n{m.diff}"
@@ -156,7 +159,18 @@ def build_messages(
             "exact exception types, and boundary values on both sides of every "
             "comparison. You are not told which bugs the current tests miss.",
         ]
-    if last_error:
+    if last_error and last_error.startswith(NO_GAIN):
+        parts += [
+            "",
+            "## Your previous attempt was rejected",
+            "Its tests passed, but they did not catch any additional surviving mutant above. "
+            "Do not repeat that style of test. For each mutant, find an input where the "
+            "original and the mutated line return DIFFERENT results, then assert the "
+            "original's result for that input. Tests only ever call the ORIGINAL code: the "
+            "mutants do not exist while the tests run, so never try to call, copy or compare "
+            "against a mutant inside a test.",
+        ]
+    elif last_error:
         parts += [
             "",
             "## Your previous attempt was rejected",
@@ -164,6 +178,16 @@ def build_messages(
             "wrong. Fix it. Pytest output (tail):",
             "```",
             last_error[-1500:],
+            "```",
+        ]
+    if lessons:
+        parts += [
+            "",
+            "## Wrong expectations from the last round (real pytest output)",
+            "Some tests you wrote failed on the real code, so the code does NOT behave the "
+            "way those tests assumed. Do not repeat these assumptions; use the real values shown:",
+            "```",
+            lessons[-1800:],
             "```",
         ]
     parts += [
@@ -237,6 +261,39 @@ def syntax_problem(code: str) -> str | None:
     except SyntaxError as exc:
         return f"{type(exc).__name__}: {exc.msg} (line {exc.lineno})"
     return None
+
+
+@dataclass
+class Attempt:
+    code: str  # the file as kept (failing tests removed)
+    check: object  # RunResult of the kept file
+    dropped: list  # names of removed test functions
+    failure: str  # pytest output that showed why they failed
+    full_code: str  # the file before any removal
+    repaired: bool = False
+
+
+def repair_failures(llm: ChatModel, messages: list[dict[str, str]], code: str, failure: str) -> str | None:
+    """Ask the STRONG model once to fix wrong expectations, using the real pytest output."""
+    follow_up = [
+        *messages,
+        {"role": "assistant", "content": "```python\n" + code.rstrip() + "\n```"},
+        {
+            "role": "user",
+            "content": (
+                "Some of those tests FAILED on the original, unmodified code:\n```\n"
+                + failure.strip()[-3000:]
+                + "\n```\nThe original code is correct, so each failing expectation is wrong. "
+                "Read the real values in the output, fix the expectations (or delete a test you "
+                "cannot make correct), and keep the tests that already pass. "
+                "Return the COMPLETE file in one ```python block."
+            ),
+        },
+    ]
+    try:
+        return extract_code(llm.complete(Tier.STRONG, follow_up))
+    except BudgetExceeded:
+        return None
 
 
 def repair(llm: ChatModel, messages: list[dict[str, str]], code: str, error: str) -> str | None:
@@ -493,8 +550,42 @@ def _run(
     add(RoundResult(0, best, killed, survived, True, "baseline", 0, alive()))
     log(f"round 0: score {best:.1f}% ({killed} killed / {survived} survived) baseline")
 
+    def check_and_prune(code: str, rnd: int, messages: list[dict[str, str]], allow_repair: bool) -> Attempt:
+        """Write ``code``, run it, repair a load error once, then drop failing test functions."""
+        generated.parent.mkdir(parents=True, exist_ok=True)
+        generated.write_text(code, encoding="utf-8")
+        chosen = selection(work, tests, generated_rel)
+        check = run_tests(work, test_timeout, chosen)
+        did_repair = False
+        if allow_repair and not check.passed and not check.timed_out and collection_failed(check.output):
+            log(f"round {rnd}: pytest could not load the new tests; asking the model to fix it once")
+            did_repair = True
+            fixed = repair(llm, messages, code, check.output)
+            if fixed and not syntax_problem(fixed) and not (code_filter and code_filter(fixed)):
+                code = fixed
+                generated.write_text(code, encoding="utf-8")
+                check = run_tests(work, test_timeout, chosen)
+        full, failure, dropped = code, "", []
+        if not check.passed:
+            every = run_tests(work, test_timeout, [generated_rel], fail_fast=False)
+            names = None if every.timed_out else failing_test_names(every.output)
+            pruned = prune_tests(code, names) if names else None
+            failure = every.output
+            if pruned is not None:
+                generated.write_text(pruned, encoding="utf-8")
+                recheck = run_tests(work, test_timeout, chosen)
+                if recheck.passed:
+                    log(f"round {rnd}: dropped {len(names)} failing test(s): {', '.join(names)}")
+                    code, check, dropped = pruned, recheck, list(names)
+                else:
+                    log(f"round {rnd}: dropping {', '.join(names)} was not enough. Output (last part):\n{recheck.output.strip()[-800:]}")
+            elif names is None:
+                log(f"round {rnd}: the failures could not be pinned on single test functions, so nothing was dropped")
+        return Attempt(code, check, dropped, failure, full, did_repair)
+
     start_tokens = spent()
     last_error: str | None = None
+    lessons: str | None = None
     stale = 0
     for rnd in range(1, max_rounds + 1):
         survivors = [m for m in mutants if statuses[m.id] == "survived"]
@@ -518,6 +609,7 @@ def _run(
                 shown,
                 last_error,
                 guided=guided,
+                lessons=lessons,
             )
             reply = llm.complete(Tier.STRONG, messages)
         except BudgetExceeded as exc:
@@ -551,35 +643,26 @@ def _run(
             note, accepted = f"rejected: not allowed ({shown_problems})", False
             stale += 1
         else:
-            dropped = 0
-            generated.write_text(code, encoding="utf-8")
-            check = run_tests(work, test_timeout, selection(work, tests, generated_rel))
-            if not check.passed and not check.timed_out and not repaired and collection_failed(check.output):
-                # pytest could not even collect the file (bad import, syntax error, ...)
-                log(f"round {rnd}: pytest could not load the new tests; asking the model to fix it once")
-                repaired = True
-                fixed = repair(llm, messages, code, check.output)
-                if fixed and not syntax_problem(fixed) and not (code_filter and code_filter(fixed)):
-                    code = fixed
-                    generated.write_text(code, encoding="utf-8")
-                    check = run_tests(work, test_timeout, selection(work, tests, generated_rel))
-            if not check.passed:
-                # One wrong expectation should not throw away the good tests: drop
-                # only the failing test functions and re-check the rest.
-                every = run_tests(work, test_timeout, [generated_rel], fail_fast=False)
-                names = None if every.timed_out else failing_test_names(every.output)
-                pruned = prune_tests(code, names) if names else None
-                if pruned is not None:
-                    generated.write_text(pruned, encoding="utf-8")
-                    recheck = run_tests(work, test_timeout, selection(work, tests, generated_rel))
-                    if recheck.passed:
-                        dropped = len(names)
-                        log(f"round {rnd}: dropped {len(names)} failing test(s): {', '.join(names)}")
-                        code, check = pruned, recheck
+            attempt = check_and_prune(code, rnd, messages, allow_repair=not repaired)
+            code, check, dropped = attempt.code, attempt.check, len(attempt.dropped)
+            repaired = repaired or attempt.repaired
+            lessons = attempt.failure if attempt.dropped else None
+            saved = 0
+            if dropped and check.passed:
+                # Those tests failed because of wrong expectations. Show the model the real
+                # outputs once and keep its fixed file only if it saves some of them.
+                log(f"round {rnd}: asking the model to fix {dropped} dropped test(s) using the real failure output")
+                candidate = repair_failures(llm, messages, attempt.full_code, attempt.failure)
+                if candidate and not syntax_problem(candidate) and not (code_filter and code_filter(candidate)):
+                    second = check_and_prune(candidate, rnd, messages, allow_repair=False)
+                    if second.check.passed and len(second.dropped) < dropped:
+                        saved = dropped - len(second.dropped)
+                        log(f"round {rnd}: the fix saved {saved} test(s)")
+                        code, check, dropped = second.code, second.check, len(second.dropped)
                     else:
-                        log(f"round {rnd}: dropping {', '.join(names)} was not enough. Output (last part):\n{recheck.output.strip()[-800:]}")
-                elif names is None:
-                    log(f"round {rnd}: the failures could not be pinned on single test functions, so nothing was dropped")
+                        generated.write_text(code, encoding="utf-8")
+                else:
+                    generated.write_text(code, encoding="utf-8")
             if not check.passed:
                 restore()
                 last_error = check.output
@@ -600,12 +683,16 @@ def _run(
                     note, accepted = "accepted: score improved", True
                     if dropped:
                         note += f" ({dropped} failing test(s) dropped)"
+                    if saved:
+                        note += f" ({saved} repaired from real output)"
                     if repaired:
                         note += " (after one repair)"
                 else:
                     restore()
                     note, accepted = "rejected: no score improvement", False
                     stale += 1
+                    if guided:
+                        last_error = NO_GAIN
 
         add(RoundResult(rnd, best, killed, survived, accepted, note, spent() - before, alive(), sorted(skip)))
         log(f"round {rnd}: score {best:.1f}% ({killed} killed / {survived} survived) {note}")

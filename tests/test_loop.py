@@ -343,3 +343,40 @@ def test_run_loop_stores_explanations(project):
     llm = FakeLLM([fenced(STRONG_TESTS)], triage_reply='{"1": "x"}')
     report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet, explain=True)
     assert Tier.FAST in llm.calls and isinstance(report.explanations, dict)
+
+
+def test_dropped_test_is_repaired_from_the_real_output(project):
+    wrong = "\n\ndef test_wrong_expectation():\n    assert apply_discount(100, 0) == 1\n"
+    right = "\n\ndef test_wrong_expectation():\n    assert apply_discount(100, 0) == 100\n"
+    llm = RecordingLLM([fenced(STRONG_TESTS + wrong), fenced(STRONG_TESTS + right)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet)
+    assert report.rounds[1].accepted
+    assert "repaired from real output" in report.rounds[1].note
+    assert "== 100" in (project / GENERATED_REL).read_text()
+    assert "FAILED" in llm.prompts[-1][1] or "assert" in llm.prompts[-1][1]
+
+
+def test_failed_repair_keeps_the_pruned_file(project):
+    wrong = "\n\ndef test_wrong_expectation():\n    assert apply_discount(100, 0) == 1\n"
+    llm = FakeLLM([fenced(STRONG_TESTS + wrong), fenced(STRONG_TESTS + wrong)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet)
+    assert report.rounds[1].accepted and "dropped" in report.rounds[1].note
+    assert "test_wrong_expectation" not in (project / GENERATED_REL).read_text()
+
+
+def test_no_gain_round_gives_the_model_a_pointed_hint(project):
+    useless = "def test_noop():\n    assert True\n"
+    llm = RecordingLLM([fenced(useless), fenced(STRONG_TESTS)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=2, log=quiet)
+    assert not report.rounds[1].accepted and report.rounds[2].accepted
+    second_prompt = llm.prompts[1][1]
+    assert "did not catch any additional surviving mutant" in second_prompt
+    assert "NO_GAIN" not in second_prompt
+
+
+def test_dropped_tests_become_lessons_for_the_next_round(project):
+    wrong = "\n\ndef test_wrong_expectation():\n    assert apply_discount(100, 0) == 1\n"
+    llm = RecordingLLM([fenced(STRONG_TESTS + wrong), "", fenced(STRONG_TESTS)])
+    run_loop(project, "pricing.py", llm, max_rounds=2, log=quiet)
+    strong_prompts = [p for tier, p in llm.prompts if tier is Tier.STRONG]
+    assert any("Wrong expectations from the last round" in p for p in strong_prompts[1:])

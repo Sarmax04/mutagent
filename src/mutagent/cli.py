@@ -41,6 +41,23 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--min-score", type=float, help="exit with code 4 if the score is below this (for CI)")
 
+    p = sub.add_parser(
+        "scan",
+        help="score many modules at once; with --fix the agent works on those below --min-score",
+    )
+    p.add_argument("--project", required=True)
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument("--targets", nargs="+", metavar="PATH", help="modules to score, relative to --project")
+    group.add_argument("--discover", action="store_true", help="find the modules automatically")
+    tests_opt(p)
+    p.add_argument("--test-timeout", type=float, default=20.0)
+    p.add_argument("--min-score", type=float, help="exit with code 4 if any module is below this (after --fix)")
+    p.add_argument("--fix", action="store_true", help="run the agent on each module below --min-score (needs an API key)")
+    p.add_argument("--rounds", type=int, default=6)
+    p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
+    p.add_argument("--budget", type=int, help="token cap per module; overrides NEBIUS_TOKEN_BUDGET")
+    p.add_argument("--report-dir", default="mutagent_reports")
+
     p = sub.add_parser("report", help="turn a saved JSON report into a Markdown report")
     p.add_argument("report_file", help="JSON report written by `run` or `baseline`")
     p.add_argument("--out", help="write here instead of printing")
@@ -83,6 +100,64 @@ def _gate(score: float, minimum: float | None) -> int:
     return 0
 
 
+def _scan(args: argparse.Namespace) -> int:
+    from .scan import discover_targets, format_table, scan
+
+    project = Path(args.project)
+    targets = discover_targets(project) if args.discover else list(args.targets)
+    missing = [t for t in targets if not (project / t).is_file()]
+    if missing or not targets:
+        print("error: " + (f"not found: {', '.join(missing)}" if missing else "no modules found"), file=sys.stderr)
+        return 2
+    if args.fix and args.min_score is None:
+        print("error: --fix needs --min-score to know which modules are too weak", file=sys.stderr)
+        return 2
+    rows = scan(project, targets, tests=args.tests, test_timeout=args.test_timeout)
+    print("\n" + format_table(rows))
+    if args.fix:
+        weak = [r for r in rows if r.score is not None and r.score < args.min_score]
+        if not weak:
+            print("\nEvery module is already above the minimum.")
+        else:
+            try:
+                load_dotenv(Path(".env"))
+                settings = Settings.from_env()
+                for row in weak:
+                    print(f"\nimproving {row.target} ({row.score:.1f}%) ...")
+                    llm = NebiusChat(settings, TokenBudget(args.budget or settings.token_budget))
+                    report = run_loop(
+                        project, row.target, llm, max_rounds=args.rounds, patience=args.patience,
+                        test_timeout=args.test_timeout, triage=False, explain=True,
+                        write_back=True, tests=args.tests, generated_rel=_generated_name(row.target),
+                    )
+                    out = Path(args.report_dir) / (row.target.replace("/", "__").replace("\\", "__") + ".json")
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+                    row.score = report.final_score
+                    last = report.rounds[-1] if report.rounds else None
+                    if last is not None:
+                        row.killed, row.survived = last.killed, last.survived
+                    print(f"  -> {report.final_score:.1f}% using {report.tokens_used} tokens; report: {out}")
+            except ConfigError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+            except Exception as exc:  # noqa: BLE001
+                message = api_error_message(exc)
+                if message is None:
+                    raise
+                print(f"error: {message}", file=sys.stderr)
+                return 3
+            print("\n" + format_table(rows))
+    scored = [r.score for r in rows if r.score is not None]
+    return _gate(min(scored), args.min_score) if scored else 0
+
+
+def _generated_name(target: str) -> str:
+    """Each module gets its own generated test file so several runs do not overwrite each other."""
+    stem = Path(target).with_suffix("").as_posix().replace("/", "_")
+    return f"tests/test_mutagent_{stem}.py"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.cmd == "serve":
@@ -106,6 +181,8 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.reconfigure(encoding="utf-8")
             print(text)
         return 0
+    if args.cmd == "scan":
+        return _scan(args)
     project = Path(args.project)
     if not (project / args.target).is_file():
         print(f"error: {project / args.target} not found", file=sys.stderr)

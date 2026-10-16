@@ -7,3 +7,5 @@ __pycache__/
 build/
 dist/
 mutagent_report.json
+mutagent_reports/
+mutagent_*report.json

@@ -131,11 +131,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
-      - run: pip install pytest "git+https://github.com/Sarmax04/mutagent" 
+      - run: pip install pytest "git+https://github.com/YOUR-USER/mutagent"   # use your repo URL
       - run: mutagent score --project . --target src/yourpkg/module.py --min-score 85
 ```
 
 To let the agent strengthen the tests, run `mutagent run ... --min-score 85` with `NEBIUS_API_KEY` set as a secret, then turn the saved JSON into a readable report with `mutagent report mutagent_report.json --out report.md`. The web demo also has a "Download test file" button.
+
+### Check a whole project
+
+```
+mutagent scan --project . --discover --tests tests/test_app.py
+mutagent scan --project . --targets src/app/a.py src/app/b.py --min-score 85
+mutagent scan --project . --discover --min-score 85 --fix
+```
+
+`scan` scores every module (no API key needed) and prints a table with the weakest module last. With `--min-score` it exits with code 4 if any module is below the line. With `--fix` the agent then works on each weak module. When it improves the score it writes `tests/test_mutagent_<module>.py`, and it always saves a JSON report per module in `mutagent_reports/`.
 
 ## Results
 
