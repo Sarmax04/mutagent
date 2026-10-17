@@ -141,6 +141,14 @@ jobs:
 
 To let the agent strengthen the tests, run `mutagent run ... --min-score 85` with `NEBIUS_API_KEY` set as a secret, then turn the saved JSON into a readable report with `mutagent report mutagent_report.json --out report.md`. The web demo also has a "Download test file" button.
 
+### Ground the tests in the real documentation (Tavily)
+
+```
+mutagent run --project examples/inflection_demo --target inflection/__init__.py --tests test_inflection.py --explain --docs
+```
+
+The most common reason the agent throws a test away is a wrong expectation: the model guesses what a function returns instead of knowing it. With `--docs`, before each round the agent finds the functions the surviving bugs live in, looks up their documentation with the [Tavily Search API](https://docs.tavily.com) and gives Nemotron a short digest next to the source code (the source code wins where they disagree). Each function is looked up once per run, at most two new lookups per round (1 Tavily credit each). The sources it read are listed in the report and on the demo page. Needs `TAVILY_API_KEY` in `.env`; `--docs-name` overrides the name searched for. Lookups are best effort: if Tavily is unreachable the run continues without them.
+
 ### Try it on your own project (web)
 
 ```

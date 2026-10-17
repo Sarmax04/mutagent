@@ -44,6 +44,7 @@ def main() -> int:
     parser.add_argument("--no-triage", action="store_true", help=argparse.SUPPRESS)  # old flag; triage is off by default
     parser.add_argument("--skip-baseline", action="store_true")
     parser.add_argument("--attempts", type=int, default=1, help="best of N for both the agent and the baseline (N x the tokens)")
+    parser.add_argument("--docs", action="store_true", help="both runs look up the library's documentation with Tavily (needs TAVILY_API_KEY)")
     args = parser.parse_args()
 
     known = {p.id: p for p in PRESETS}
@@ -61,6 +62,8 @@ def main() -> int:
         if preset.tests:
             common += ["--tests", *preset.tests]
         common += ["--attempts", str(args.attempts)]
+        if args.docs:
+            common.append("--docs")
         guided = base + ["run", *common, "--rounds", str(args.rounds), "--report", f"replays/{preset.id}.json"]
         if args.triage and not args.no_triage:
             guided.append("--triage")

@@ -228,6 +228,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
         <dt>Caught</dt><dd id="f-caught">&ndash;</dd>
         <dt>Model tokens</dt><dd id="f-tokens">&ndash;</dd>
         <dt id="t-baseline" hidden>Same model, no bug feedback</dt><dd id="f-baseline" hidden></dd>
+        <dt id="t-attempts" hidden>Attempts</dt><dd id="f-attempts" hidden></dd>
       </dl>
     </div>
   </section>
@@ -238,6 +239,12 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
   <section id="left" hidden>
     <h2>Bugs that got away</h2>
     <ul class="round-list" id="left-list"></ul>
+  </section>
+
+  <section id="docs" hidden>
+    <h2>Documentation the agent read</h2>
+    <p class="hint">Looked up with Tavily web search, so the model's expected values come from the library's real docs.</p>
+    <ul class="round-list" id="docs-list"></ul>
   </section>
 
   <div class="code-head">
@@ -413,6 +420,34 @@ function showLeft(report) {
     list.appendChild(li);
   });
   $("#left").hidden = alive.length === 0;
+
+  const docsList = $("#docs-list");
+  docsList.textContent = "";
+  const lookups = (report && report.docs_lookups) || [];
+  lookups.forEach((item) => {
+    const li = document.createElement("li");
+    li.style.padding = "8px 0";
+    const head = document.createElement("strong");
+    head.textContent = item.name || "?";
+    li.appendChild(head);
+    (item.urls || []).filter((u) => /^https?:\/\//.test(u)).slice(0, 3).forEach((u) => {
+      li.appendChild(document.createTextNode(" "));
+      const a = document.createElement("a");
+      a.href = u;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = new URL(u).hostname;
+      li.appendChild(a);
+    });
+    docsList.appendChild(li);
+  });
+  $("#docs").hidden = lookups.length === 0;
+
+  const attempts = (report && report.attempts) || [];
+  const kept = attempts.find((a) => a.kept);
+  $("#t-attempts").hidden = $("#f-attempts").hidden = attempts.length < 2;
+  $("#f-attempts").textContent = attempts.length < 2 ? "" :
+    attempts.length + " runs, kept the best (" + (kept ? kept.final_score.toFixed(1) + "%" : "?") + ")";
 }
 
 function showCode(report) {

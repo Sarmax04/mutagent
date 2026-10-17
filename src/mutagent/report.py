@@ -35,6 +35,18 @@ def render_markdown(data: dict) -> str:
         lines += ["", "Some of these may be equivalent mutants: changes that no test can ever tell apart."]
     else:
         lines.append("None. Every planted bug was caught.")
+    lookups = data.get("docs_lookups") or []
+    if lookups:
+        lines += ["", "## Documentation the agent read (Tavily)", ""]
+        for item in lookups:
+            urls = ", ".join(u for u in item.get("urls", []) if u) or "no results"
+            lines.append(f"- `{item.get('name', '?')}`: {urls}")
+    attempts = data.get("attempts") or []
+    if attempts:
+        lines += ["", "## Attempts (best of N)", "", "| Attempt | Final score | Tokens | Kept |", "|---|---|---|---|"]
+        for item in attempts:
+            kept = "yes" if item.get("kept") else ""
+            lines.append(f"| {item['attempt']} | {item['final_score']:.1f}% | {item['tokens_used']} | {kept} |")
     code = data.get("generated_code", "").strip()
     if code:
         lines += ["", "## Generated tests", "", "```python", code, "```"]

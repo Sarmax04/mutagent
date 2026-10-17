@@ -82,6 +82,7 @@ class LoopReport:
     rounds: list[RoundResult] = field(default_factory=list)
     explanations: dict[str, str] = field(default_factory=dict)  # surviving mutant id -> one line
     attempts: list[dict] = field(default_factory=list)  # best-of-N: every attempt's score and tokens
+    docs_lookups: list[dict] = field(default_factory=list)  # --docs: what was looked up, and where
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -133,6 +134,7 @@ def build_messages(
     max_diffs: int = 30,
     guided: bool = True,
     lessons: str | None = None,
+    reference: str | None = None,
 ) -> list[dict[str, str]]:
     diffs = "\n\n".join(
         f"### Mutant {m.id} (line {m.lineno}, {m.kind})\n{m.diff}"
@@ -199,6 +201,14 @@ def build_messages(
             "```",
             last_error[-1500:],
             "```",
+        ]
+    if reference:
+        parts += [
+            "",
+            "## Documentation found on the web (Tavily search)",
+            "Use it to get expected values right. It may describe another version of the "
+            "library: where it disagrees with the source code above, the source code wins.",
+            reference,
         ]
     if lessons:
         parts += [
@@ -538,6 +548,7 @@ def run_loop(
     code_filter: Callable[[str], list[str]] | None = None,
     guided: bool = True,
     explain: bool = False,
+    docs=None,
 ) -> LoopReport:
     """Run the agent loop.
 
@@ -554,7 +565,7 @@ def run_loop(
     try:
         return _run(
             project, work, target, llm, max_rounds, patience, test_timeout,
-            triage, generated_rel, write_back, log, tests, on_round, code_filter, guided, explain,
+            triage, generated_rel, write_back, log, tests, on_round, code_filter, guided, explain, docs,
         )
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
@@ -577,6 +588,7 @@ def _run(
     code_filter: Callable[[str], list[str]] | None,
     guided: bool = True,
     explain: bool = False,
+    docs=None,
 ) -> LoopReport:
     source = (work / target).read_text(encoding="utf-8")
     mutants = generate_mutants(source)
@@ -692,6 +704,13 @@ def _run(
             shown = [m for m in survivors if m.id not in skip] or survivors
             if not guided:
                 shown = []
+            reference = None
+            if docs is not None:
+                from .docs import enclosing_names, public_names
+
+                # guided: the functions the surviving bugs live in; baseline: the busiest functions overall
+                lines = [m.lineno for m in (shown or mutants)]
+                reference = docs.digest(public_names(enclosing_names(source, lines))[:4]) or None
             messages = build_messages(
                 module,
                 source,
@@ -701,6 +720,7 @@ def _run(
                 last_error,
                 guided=guided,
                 lessons=lessons,
+                reference=reference,
             )
             reply = llm.complete(Tier.STRONG, messages)
         except BudgetExceeded as exc:
@@ -796,6 +816,8 @@ def _run(
 
     report.final_score = best
     report.generated_code = current
+    if docs is not None:
+        report.docs_lookups = list(docs.history)
     if explain and alive():
         try:
             left = [m for m in mutants if m.id in set(alive())]
