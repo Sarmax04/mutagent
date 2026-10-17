@@ -283,3 +283,9 @@ def test_local_run_with_attempts_and_docs_rules(own_project, monkeypatch):
     assert len(report["attempts"]) == 1  # stopped early: every planted bug was caught
     assert all("diff" in m for m in report["mutants"])
     assert "attempt 1 of 2" in run["log"]
+
+
+def test_index_is_not_cached_across_deploys():
+    response = make_client().get("/")
+    assert response.headers["cache-control"] == "no-cache"
+    assert 'id="progress"' in response.text

@@ -328,7 +328,8 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
+        # no-cache: browsers must re-check the page after every deploy instead of showing an old copy
+        return FileResponse(STATIC_DIR / "index.html", media_type="text/html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/presets")
     def presets() -> list[dict]:
