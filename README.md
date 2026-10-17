@@ -122,10 +122,10 @@ Container image (deployed on Render; the Dockerfile listens on `$PORT`, default 
 
 ## Use it in CI
 
-`mutagent score` needs no API key, so it can gate a pull request: it fails (exit code 4) when the tests are too weak.
+`mutagent score` and `mutagent scan` need no API key, so they can gate a pull request: the job fails when the tests miss too many planted bugs. The repository is also a GitHub Action:
 
 ```yaml
-# .github/workflows/mutation-gate.yml
+# .github/workflows/mutation-gate.yml in your project
 name: mutation-gate
 on: [pull_request]
 jobs:
@@ -133,11 +133,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with: { python-version: "3.13" }
-      - run: pip install pytest "git+https://github.com/Sarmax04/mutagent"
-      - run: mutagent score --project . --target src/yourpkg/module.py --min-score 85
+      - uses: Sarmax04/mutagent@v1
+        with:
+          targets: src/yourpkg/module.py   # leave out to score every module
+          tests: tests/test_module.py      # leave out to run everything pytest finds
+          min-score: "85"
+          install: pip install -e .        # your project's own dependencies
 ```
+
+It writes the score table to the job summary and exposes the lowest score as the `lowest-score` output. Without the Action: `pip install "git+https://github.com/Sarmax04/mutagent"` and `mutagent scan --project . --discover --min-score 85` (exit code 4 when a module is below the line).
 
 To let the agent strengthen the tests, run `mutagent run ... --min-score 85` with `NEBIUS_API_KEY` set as a secret, then turn the saved JSON into a readable report with `mutagent report mutagent_report.json --out report.md`. The web demo also has a "Download test file" button.
 

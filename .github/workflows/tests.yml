@@ -19,3 +19,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: python -m pytest -q
+
+  action:
+    # the reusable action in action.yml, run on the demo project (37.8% before the agent)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./
+        with:
+          project: examples/demo_project
+          targets: pricing.py
+          min-score: "30"

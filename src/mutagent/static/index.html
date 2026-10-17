@@ -87,6 +87,22 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .local input[type=text], .local select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
 .local .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
 .local .row label { flex: 1 1 280px; }
+.links { margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 15px; }
+a { color: var(--focus); }
+.steps { margin: 26px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; counter-reset: step; }
+.steps li { background: var(--plate); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; counter-increment: step; font-size: 15px; }
+.steps li::before { content: counter(step); display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: 8px; border-radius: 50%; background: var(--caught); color: var(--on-caught); font-weight: 700; font-size: 13px; }
+.steps strong { display: inline; }
+.bugdiff { margin: 6px 0 0; padding: 8px 10px; font-size: 12.5px; max-height: none; }
+.bugdiff .del { color: var(--alive); }
+.bugdiff .add { color: var(--caught); }
+.summary-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--plate); }
+.summary { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 15px; }
+.summary th, .summary td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.summary tr:last-child td { border-bottom: 0; }
+.summary th { color: var(--muted); font-weight: 600; }
+.summary .win { font-weight: 700; }
+footer { margin-top: 40px; color: var(--muted); font-size: 14px; }
 .hint { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
 #status { margin: 14px 0 0; min-height: 1.55em; }
 #status.error { color: var(--alive); font-weight: 600; }
@@ -172,6 +188,18 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
   <header>
     <h1>MutAgent</h1>
     <p class="lede">An agent writes tests, then proves they work. It plants small bugs in the code and counts how many the tests catch.</p>
+    <p class="links">
+      <a href="#how">How it works</a>
+      <a href="#all-results">All results</a>
+      <a href="https://github.com/Sarmax04/mutagent" target="_blank" rel="noopener noreferrer">Code on GitHub</a>
+      <span style="color:var(--muted)">NVIDIA Nemotron on Nebius Token Factory</span>
+    </p>
+    <ol class="steps" id="how" aria-label="How it works">
+      <li><strong>Plant bugs.</strong> Small changes to the code: a flipped comparison, a swapped operator, a removed <code>not</code>.</li>
+      <li><strong>Run the tests.</strong> Every bug the existing tests miss is a gap. These are the hollow rings.</li>
+      <li><strong>Write tests.</strong> Nemotron Super sees the missed bugs and writes tests aimed at them.</li>
+      <li><strong>Keep only proof.</strong> New tests must pass on the real code and raise the score, or they are rolled back.</li>
+    </ol>
   </header>
 
   <section class="controls" aria-label="Choose a run">
@@ -205,6 +233,14 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
       </label>
       <label>Test files to count (none selected: everything pytest finds)
         <select id="local-tests" multiple size="4"></select>
+      </label>
+    </div>
+    <div class="row" id="local-options" hidden>
+      <label style="flex:0 1 auto;display:flex;align-items:center;gap:8px;color:var(--ink)">
+        <input type="checkbox" id="local-docs"> Look up the documentation (Tavily)
+      </label>
+      <label style="flex:0 1 auto">Attempts (keep the best)
+        <select id="local-attempts"><option>1</option><option>2</option><option>3</option></select>
       </label>
     </div>
   </section>
@@ -245,6 +281,17 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
     <h2>Documentation the agent read</h2>
     <p class="hint">Looked up with Tavily web search, so the model's expected values come from the library's real docs.</p>
     <ul class="round-list" id="docs-list"></ul>
+  </section>
+
+  <section id="all-results" hidden>
+    <h2>All results</h2>
+    <p class="hint">Real recorded runs. The baseline is the same loop and model, but it is never told which bugs survived.</p>
+    <div class="summary-wrap">
+      <table class="summary">
+        <thead><tr><th>Library</th><th>Planted bugs</th><th>Before</th><th>Baseline</th><th>Agent</th><th>Tokens (agent)</th></tr></thead>
+        <tbody id="summary-body"></tbody>
+      </table>
+    </div>
   </section>
 
   <div class="code-head">
@@ -417,6 +464,25 @@ function showLeft(report) {
     head.textContent = "Line " + (m.line || "?") + " (" + (m.kind || "change") + ")";
     li.appendChild(head);
     li.appendChild(document.createTextNode(why[String(id)] ? ": " + why[String(id)] : ""));
+    if (m.diff) {
+      const more = document.createElement("details");
+      more.style.marginTop = "4px";
+      const summary = document.createElement("summary");
+      summary.textContent = "Show the bug";
+      more.appendChild(summary);
+      const pre = document.createElement("pre");
+      pre.className = "bugdiff";
+      m.diff.split("\n").forEach((line) => {
+        if (/^(---|\+\+\+|@@)/.test(line) || !line) return;
+        const span = document.createElement("span");
+        if (line[0] === "-") span.className = "del";
+        if (line[0] === "+") span.className = "add";
+        span.textContent = line + "\n";
+        pre.appendChild(span);
+      });
+      more.appendChild(pre);
+      li.appendChild(more);
+    }
     list.appendChild(li);
   });
   $("#left").hidden = alive.length === 0;
@@ -465,9 +531,34 @@ function showLog(lines) {
 
 function showFooter(models) {
   const footer = $("#footer");
-  footer.textContent = models && models.strong
-    ? "Tests written by " + models.strong + " through Nebius Token Factory."
-    : "";
+  const parts = [];
+  if (models && models.strong) parts.push("Tests written by " + models.strong + (models.fast ? ", surviving bugs explained by " + models.fast : "") + ", through Nebius Token Factory.");
+  parts.push("Recordings are real runs and are never edited.");
+  footer.textContent = parts.join(" ");
+}
+
+async function loadSummary() {
+  try {
+    const rows = await api("/api/summary");
+    const body = $("#summary-body");
+    body.textContent = "";
+    rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      const pct = (x) => (typeof x === "number" ? x.toFixed(1) + "%" : "\u2013");
+      const agentWins = typeof r.baseline === "number" && r.agent > r.baseline;
+      const baseWins = typeof r.baseline === "number" && r.baseline > r.agent;
+      [[r.title, ""], [String(r.mutants), ""], [pct(r.before), ""],
+       [pct(r.baseline), baseWins ? "win" : ""], [pct(r.agent), agentWins ? "win" : ""],
+       [r.tokens ? r.tokens.toLocaleString() : "\u2013", ""]].forEach(([text, cls]) => {
+        const td = document.createElement("td");
+        td.textContent = text;
+        if (cls) td.className = cls;
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    $("#all-results").hidden = rows.length === 0;
+  } catch (_) { /* the overview is optional */ }
 }
 
 function resetResults() {
@@ -624,6 +715,10 @@ async function findModules() {
     data.tests.forEach((t) => tests.add(new Option(t, t, false, true)));
     app.local = { project: data.project, ready: true };
     $("#local-pick").hidden = false;
+    $("#local-options").hidden = false;
+    const docsOk = Boolean(app.status && app.status.docs_available);
+    $("#local-docs").disabled = !docsOk;
+    $("#local-docs").parentElement.title = docsOk ? "" : "Add TAVILY_API_KEY to your .env to use this";
     say("Found " + data.targets.length + " module(s) and " + data.tests.length + " test file(s). Pick one and start.");
   } catch (error) {
     say(error.message, true);
@@ -647,6 +742,8 @@ async function startLive() {
             target: $("#local-target").value,
             tests: Array.from($("#local-tests").selectedOptions).map((o) => o.value),
             rounds: Number($("#rounds").value),
+            docs: $("#local-docs").checked,
+            attempts: Number($("#local-attempts").value),
           }),
         })
       : await api("/api/runs", {
@@ -665,8 +762,13 @@ async function startLive() {
       showLog(run.log);
       if (run.status === "error") { say(run.error || "The run stopped.", true); break; }
       if (run.status === "done") {
-        if (run.report) { applyMeta(run.report.mutants); showCode(run.report); }
-        const rounds = run.rounds;
+        const rounds = (run.report && run.report.rounds && run.report.rounds.length) ? run.report.rounds : run.rounds;
+        if (run.report) {
+          applyMeta(run.report.mutants);
+          paintRound(rounds, rounds.length - 1);
+          renderRounds(rounds, rounds.length - 1);
+          showCode(run.report);
+        }
         say("Done. The score went from " + rounds[0].score.toFixed(1) + "% to " + rounds[rounds.length - 1].score.toFixed(1) + "%.");
         break;
       }
@@ -748,6 +850,7 @@ async function init() {
     }
   });
   loadPreview();
+  loadSummary();
 }
 init();
 </script>

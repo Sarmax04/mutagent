@@ -256,3 +256,30 @@ def test_local_run_rejects_paths_outside_the_project(own_project, tmp_path):
         "/api/local/runs", json={"project": str(own_project), "target": "m.py", "tests": ["../outside.py"]}
     )
     assert response.status_code == 400
+
+
+def test_summary_lists_recorded_runs(tiny):
+    replays = tiny / "replays"
+    replays.mkdir()
+    (replays / "tiny.json").write_text(json.dumps(
+        {"mutant_count": 3, "initial_score": 33.3, "final_score": 100.0, "tokens_used": 500, "rounds": []}))
+    (replays / "tiny-baseline.json").write_text(json.dumps({"final_score": 66.7}))
+    rows = make_client().get("/api/summary").json()
+    assert rows == [{"id": "tiny", "title": "Tiny", "mutants": 3, "before": 33.3,
+                     "agent": 100.0, "baseline": 66.7, "tokens": 500}]
+
+
+def test_local_run_with_attempts_and_docs_rules(own_project, monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    client = make_local_client()
+    assert client.get("/api/status").json()["docs_available"] is False
+    body = {"project": str(own_project), "target": "m.py", "tests": ["tests/test_m.py"], "rounds": 1}
+    assert client.post("/api/local/runs", json={**body, "docs": True}).status_code == 400
+    run_id = client.post("/api/local/runs", json={**body, "attempts": 2}).json()["id"]
+    run = wait_done(client, run_id)
+    assert run["status"] == "done"
+    report = run["report"]
+    assert report["final_score"] == 100.0
+    assert len(report["attempts"]) == 1  # stopped early: every planted bug was caught
+    assert all("diff" in m for m in report["mutants"])
+    assert "attempt 1 of 2" in run["log"]

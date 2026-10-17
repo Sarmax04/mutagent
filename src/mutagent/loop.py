@@ -626,7 +626,7 @@ def _run(
         mutant_count=len(mutants),
         initial_score=best,
         final_score=best,
-        mutants=[{"id": m.id, "line": m.lineno, "kind": m.kind} for m in mutants],
+        mutants=[{"id": m.id, "line": m.lineno, "kind": m.kind, "diff": m.diff} for m in mutants],
         mode="guided" if guided else "baseline",
     )
 

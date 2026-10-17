@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -25,7 +26,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .llm import ChatModel, ConfigError, api_error_message, NebiusChat, Settings, TokenBudget, load_dotenv
-from .loop import BaselineFailing, RoundResult, run_loop
+from .docs import DocsUnavailable
+from .loop import BaselineFailing, RoundResult, module_name, run_best_of
 from .presets import PRESETS, Preset, get_preset, project_path, replays_dir
 from .scan import discover_targets
 from .safety import screen_test_code
@@ -34,6 +36,7 @@ log = logging.getLogger("mutagent.web")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MAX_STORED_RUNS = 20
 LOCAL_MAX_ROUNDS = 8
+LOCAL_MAX_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -151,6 +154,7 @@ class RunManager:
                 "run_token_budget": self.limits.run_token_budget,
                 "models": self.models,
                 "local": self.local_enabled,
+                "docs_available": self.local_enabled and bool(os.environ.get("TAVILY_API_KEY", "").strip()),
             }
 
     def get(self, run_id: str) -> RunState | None:
@@ -176,7 +180,9 @@ class RunManager:
         threading.Thread(target=self._work, args=(state, preset), daemon=True).start()
         return state
 
-    def start_local(self, project: Path, target: str, tests: list[str], rounds: int) -> RunState:
+    def start_local(
+        self, project: Path, target: str, tests: list[str], rounds: int, docs: bool = False, attempts: int = 1
+    ) -> RunState:
         """A run on the person's own project. Only offered by ``mutagent serve --local``."""
         if self._local_factory is None:
             raise LiveUnavailable()
@@ -189,34 +195,50 @@ class RunManager:
             self._runs[state.id] = state
             while len(self._runs) > MAX_STORED_RUNS:
                 self._runs.popitem(last=False)
-        job = (project, target, tests)
+        job = (project, target, tests, docs, max(1, min(attempts, LOCAL_MAX_ATTEMPTS)))
         threading.Thread(target=self._work, args=(state, None, job), daemon=True).start()
         return state
 
     def _work(self, state: RunState, preset: Preset | None, job: tuple | None = None) -> None:
         try:
+            docs_lookup, attempts = None, 1
             if job is not None:
-                llm = self._local_factory()  # type: ignore[misc]
-                project, target, tests = job
+                make_llm = self._local_factory
+                project, target, tests, want_docs, attempts = job
+                if want_docs:
+                    from .docs import from_env
+
+                    docs_lookup = from_env(project, module_name(target), log=state.log.append)
             else:
-                llm = self._factory()  # type: ignore[misc]
+                make_llm = self._factory
                 project, target, tests = project_path(preset), preset.target, preset.tests  # type: ignore[union-attr]
             state.status = "running"
-            report = run_loop(
+
+            def log_line(message: str) -> None:
+                state.log.append(message)
+                if re.fullmatch(r"attempt \d+ of \d+", message):
+                    state.rounds.clear()  # a new attempt starts from the same baseline
+
+            report = run_best_of(
+                attempts,
+                make_llm,  # type: ignore[arg-type]
                 project,
                 target,
-                llm,
                 max_rounds=state.rounds_requested,
                 test_timeout=self.limits.test_timeout,
                 write_back=False,
-                log=state.log.append,
+                log=log_line,
                 tests=tests,
                 on_round=state.add_round,
                 code_filter=screen_test_code,
                 explain=True,
+                docs=docs_lookup,
             )
             state.report = report.to_dict()
             state.status = "done"
+        except DocsUnavailable as exc:
+            state.error = str(exc)
+            state.status = "error"
         except BaselineFailing:
             log.exception("the project fails its own tests")
             state.error = (
@@ -242,6 +264,8 @@ class LocalRunRequest(BaseModel):
     target: str = Field(min_length=1, max_length=300)
     tests: list[str] = Field(default_factory=list, max_length=20)
     rounds: int = Field(default=4, ge=1, le=20)
+    docs: bool = False
+    attempts: int = Field(default=1, ge=1, le=3)
 
 
 class LocalProjectRequest(BaseModel):
@@ -320,6 +344,34 @@ def create_app(
             for p in PRESETS
         ]
 
+    @app.get("/api/summary")
+    def summary() -> list[dict]:
+        """Final scores of every recorded run, for the overview table."""
+        rows = []
+        for p in PRESETS:
+            def load(name: str):
+                path = replays_dir() / name
+                try:
+                    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+                except (OSError, ValueError):
+                    return None
+
+            agent, base = load(f"{p.id}.json"), load(f"{p.id}-baseline.json")
+            if not agent:
+                continue
+            rows.append(
+                {
+                    "id": p.id,
+                    "title": p.title,
+                    "mutants": agent.get("mutant_count"),
+                    "before": agent.get("initial_score"),
+                    "agent": agent.get("final_score"),
+                    "baseline": base.get("final_score") if base else None,
+                    "tokens": agent.get("tokens_used"),
+                }
+            )
+        return rows
+
     @app.get("/api/status")
     def status() -> dict:
         return manager.status()
@@ -396,8 +448,12 @@ def create_app(
             if found is None or not found.is_file():
                 raise HTTPException(400, f"Test file not found inside the project: {name}")
             tests.append(found.relative_to(root).as_posix())
+        if body.docs and not os.environ.get("TAVILY_API_KEY", "").strip():
+            raise HTTPException(400, "Looking up docs needs TAVILY_API_KEY in your .env.")
         try:
-            state = manager.start_local(root, target.relative_to(root).as_posix(), tests, body.rounds)
+            state = manager.start_local(
+                root, target.relative_to(root).as_posix(), tests, body.rounds, body.docs, body.attempts
+            )
         except Busy:
             raise HTTPException(429, "Another run is in progress. Try again in a minute.")
         except LiveUnavailable:
