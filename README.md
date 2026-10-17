@@ -132,7 +132,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
-      - run: pip install pytest "git+https://github.com/YOUR-USER/mutagent"   # use your repo URL
+      - run: pip install pytest "git+https://github.com/Sarmax04/mutagent"
       - run: mutagent score --project . --target src/yourpkg/module.py --min-score 85
 ```
 
