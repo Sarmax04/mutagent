@@ -3,7 +3,7 @@
   "mutant_count": 108,
   "initial_score": 88.88888888888889,
   "final_score": 88.88888888888889,
-  "tokens_used": 53362,
+  "tokens_used": 76330,
   "generated_path": null,
   "generated_code": "",
   "mutants": [
@@ -580,8 +580,8 @@
       "killed": 96,
       "survived": 12,
       "accepted": false,
-      "note": "rejected: tests fail on the original code",
-      "tokens_used": 20413,
+      "note": "rejected: no score improvement",
+      "tokens_used": 20930,
       "survivors": [
         24,
         34,
@@ -605,7 +605,31 @@
       "survived": 12,
       "accepted": false,
       "note": "rejected: no score improvement",
-      "tokens_used": 32949,
+      "tokens_used": 37853,
+      "survivors": [
+        24,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        63,
+        64
+      ],
+      "triaged": []
+    },
+    {
+      "round": 3,
+      "score": 88.88888888888889,
+      "killed": 96,
+      "survived": 12,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 17547,
       "survivors": [
         24,
         34,
@@ -623,6 +647,7 @@
       "triaged": []
     }
   ],
+  "explanations": {},
   "models": {
     "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
     "strong": "nvidia/nemotron-3-super-120b-a12b"

@@ -3,9 +3,9 @@
   "mutant_count": 55,
   "initial_score": 89.0909090909091,
   "final_score": 98.18181818181819,
-  "tokens_used": 23130,
+  "tokens_used": 44364,
   "generated_path": null,
-  "generated_code": "import unittest\nfrom collections.abc import Callable\nfrom typing import Any\n\nimport cachetools.func\n\n\nclass TestMutagenGenerated(unittest.TestCase):\n    def test_fifo_cache_default_maxsize(self):\n        deco = cachetools.func.fifo_cache()(lambda x: x)\n        self.assertEqual(deco.cache_parameters()['maxsize'], 128)\n\n    def test_lfu_cache_default_maxsize(self):\n        deco = cachetools.func.lfu_cache()(lambda x: x)\n        self.assertEqual(deco.cache_parameters()['maxsize'], 128)\n\n    def test_lru_cache_default_maxsize(self):\n        deco = cachetools.func.lru_cache()(lambda x: x)\n        self.assertEqual(deco.cache_parameters()['maxsize'], 128)\n\n    def test_rr_cache_default_maxsize(self):\n        deco = cachetools.func.rr_cache()(lambda x: x)\n        self.assertEqual(deco.cache_parameters()['maxsize'], 128)\n\n    def test_ttl_cache_default_maxsize(self):\n        deco = cachetools.func.ttl_cache()(lambda x: x)\n        self.assertEqual(deco.cache_parameters()['maxsize'], 128)\n\n    def test_ttl_cache_default_ttl(self):\n        deco = cachetools.func.ttl_cache()(lambda x: x)\n        params = deco.cache_parameters()\n        # Since we cannot directly inspect internal ttl via public API,\n        # verify behavior consistent with default ttl=600 by mocking time?\n        # Instead rely on existence check via parameter presence.\n        self.assertIn('typed', params)  # placeholder to ensure decorator works\n        # The actual default can't be tested without timer manipulation \u2014 skipped for now.\n\n\nif __name__ == '__main__':\n    unittest.main()\n",
+  "generated_code": "import unittest\nimport cachetools.func as func_module\n\nclass DefaultMaxsizeTests(unittest.TestCase):\n    \"\"\"Detect off-by-one changes to default maxsize arguments.\"\"\"\n    \n    def test_fifo_default_maxsize_is_128_not_129(self):\n        deco = func_module.fifo_cache()\n        wrapped = deco(lambda x: x)\n        self.assertEqual(wrapped.cache_parameters()['maxsize'], 128)\n        \n    def test_lfu_default_maxsize_is_128_not_129(self):\n        deco = func_module.lfu_cache()\n        wrapped = deco(lambda x: x)\n        self.assertEqual(wrapped.cache_parameters()['maxsize'], 128)\n        \n    def test_lru_default_maxsize_is_128_not_129(self):\n        deco = func_module.lru_cache()\n        wrapped = deco(lambda x: x)\n        self.assertEqual(wrapped.cache_parameters()['maxsize'], 128)\n        \n    def test_rr_default_maxsize_is_128_not_129(self):\n        deco = func_module.rr_cache()\n        wrapped = deco(lambda x: x)\n        self.assertEqual(wrapped.cache_parameters()['maxsize'], 128)\n        \n    def test_ttl_default_maxsize_is_128_not_129(self):\n        deco = func_module.ttl_cache()\n        wrapped = deco(lambda x: x)\n        self.assertEqual(wrapped.cache_parameters()['maxsize'], 128)\n",
   "mutants": [
     {
       "id": 0,
@@ -309,8 +309,8 @@
       "killed": 54,
       "survived": 1,
       "accepted": true,
-      "note": "accepted: score improved",
-      "tokens_used": 4843,
+      "note": "accepted: score improved (1 repaired from real output)",
+      "tokens_used": 8986,
       "survivors": [
         28
       ],
@@ -323,13 +323,11 @@
       "survived": 1,
       "accepted": false,
       "note": "rejected: no score improvement",
-      "tokens_used": 12712,
+      "tokens_used": 9128,
       "survivors": [
         28
       ],
-      "triaged": [
-        28
-      ]
+      "triaged": []
     },
     {
       "round": 3,
@@ -337,14 +335,30 @@
       "killed": 54,
       "survived": 1,
       "accepted": false,
-      "note": "rejected: tests fail on the original code",
-      "tokens_used": 5575,
+      "note": "rejected: no score improvement",
+      "tokens_used": 12153,
+      "survivors": [
+        28
+      ],
+      "triaged": []
+    },
+    {
+      "round": 4,
+      "score": 98.18181818181819,
+      "killed": 54,
+      "survived": 1,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 13792,
       "survivors": [
         28
       ],
       "triaged": []
     }
   ],
+  "explanations": {
+    "28": "Test suite fails to verify the cache size or behavior when `maxsize` is set to a value that might affect the number of items stored, or when the default `ttl` changes unexpectedly, even though the decorator\u2019s logic remains functionally equi"
+  },
   "models": {
     "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
     "strong": "nvidia/nemotron-3-super-120b-a12b"

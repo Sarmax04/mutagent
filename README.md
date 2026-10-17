@@ -30,7 +30,8 @@ LLM-generated tests often pass without testing anything. Coverage and "number of
 ```
 
 - **Planted bugs:** flipped comparisons (`<`/`<=`, `==`/`!=`, `in`/`not in`, `is`/`is not`), swapped arithmetic (also `+=`), `and`/`or` swaps, removed `not`, negated `if` conditions, `return x` replaced by `return None`, and bumped integer / flipped boolean constants.
-- **Two model tiers on purpose.** `STRONG` (a larger Nemotron model) writes tests. `FAST` (a small Nemotron model) optionally triages survivors that look semantically equivalent, so tokens are not wasted on unkillable mutants (`--triage`). Triage only changes what the STRONG model is shown; the score still counts every bug.
+- **Two model tiers on purpose.** `STRONG` (a larger Nemotron model) writes and repairs tests. `FAST` (a small Nemotron model) writes a one-line explanation of every bug that is still alive at the end (`--explain`), and can optionally set aside survivors that look unkillable (`--triage`). Triage is off by default: in my runs the small model twice called a catchable bug unkillable.
+- **Keeps the good tests.** When some new tests fail on the original code, only those are dropped; the STRONG model then sees the real pytest output once and fixes the wrong expectations, and the same output is passed into the next round so the mistake is not repeated.
 - **A comparison baseline.** `mutagent baseline` runs the same loop with the same model and the same acceptance rule, but never shows the model which bugs survive. The difference between the two scores is what the survivor feedback adds.
 - **Hard token budget** per run (`NEBIUS_TOKEN_BUDGET`), so a public demo cannot drain credits.
 - **Honest acceptance rule.** Tests that fail on the original code, or that do not improve the score, are rolled back. The failure output is fed into the next prompt.
@@ -40,8 +41,8 @@ LLM-generated tests often pass without testing anything. Coverage and "number of
 
 | Component | What it does |
 |---|---|
-| NVIDIA Nemotron (STRONG tier) | `nvidia/nemotron-3-super-120b-a12b`. Writes tests targeting surviving mutants. |
-| NVIDIA Nemotron (FAST tier) | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`. Optional triage of likely-equivalent mutants (`--triage`); not used in the runs below. |
+| NVIDIA Nemotron (STRONG tier) | `nvidia/nemotron-3-super-120b-a12b`. Writes tests targeting surviving mutants and repairs wrong expectations from real pytest output. |
+| NVIDIA Nemotron (FAST tier) | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`. Explains each surviving bug in one line (`--explain`, used in the recordings); optional triage of likely-equivalent mutants (`--triage`, not used below). |
 | Nebius Token Factory | All inference calls (`src/mutagent/llm.py`). |
 | Web demo hosting | The demo page runs on Render's free tier (Docker). Only the model calls go to Nebius, which the hackathon FAQ allows. |
 
@@ -55,8 +56,8 @@ cp .env.example .env        # fill in the key, base URL and model IDs from the T
 # 1. no model needed: score the demo project's deliberately weak tests
 mutagent score --project examples/demo_project --target pricing.py
 
-# 2. run the agent (uses Token Factory, up to --rounds rounds); --triage uses the small FAST model too
-mutagent run --project examples/demo_project --target pricing.py --rounds 4 --triage
+# 2. run the agent (uses Token Factory, up to --rounds rounds); --explain lets the small FAST model explain the bugs that survive
+mutagent run --project examples/demo_project --target pricing.py --rounds 6 --explain
 
 # 3. the comparison baseline: same loop and model, no bug feedback
 mutagent baseline --project examples/demo_project --target pricing.py
@@ -88,7 +89,7 @@ Baseline mutation score of each project's *own* tests, before the agent does any
 | humanize `filesize.py` | 36 | 97.2% | ~14 s |
 | humanize `lists.py` | 20 | 90.0% | ~8 s |
 | humanize `time.py` | 366 | 89.6% | ~6 min |
-| cachetools `keys.py` | 19 | 94.7% | ~5 s |
+| cachetools `keys.py` (with its own `test_keys.py`, not shipped) | 19 | 94.7% | ~5 s |
 
 Unmodified copies of cachetools, inflection and python-slugify (all MIT) are vendored in `examples/` so the demo runs out of the box; each folder has a `VENDORED.md` with the source and license. The humanize rows were measured on a separate checkout and are not shipped.
 
@@ -131,7 +132,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
-      - run: pip install pytest "git+https://github.com/Sarmax04/mutagent"   # use your repo URL
+      - run: pip install pytest "git+https://github.com/YOUR-USER/mutagent"   # use your repo URL
       - run: mutagent score --project . --target src/yourpkg/module.py --min-score 85
 ```
 
@@ -157,21 +158,42 @@ mutagent scan --project . --discover --min-score 85 --fix
 
 ## Results
 
-Real runs against Nebius Token Factory (NVIDIA Nemotron models), 3 rounds at most. Each row compares the survivor-guided agent with the baseline run (same loop, same model, no bug feedback). Recorded in `replays/` and playable in the web demo.
+Real runs against Nebius Token Factory with NVIDIA Nemotron models, recorded with `python scripts/record.py` (up to 6 rounds, stop after 3 rounds without progress). Each row compares the survivor-guided agent with the baseline: the same loop, model, repair steps and acceptance rule, but the model is never told which bugs survive. These recordings are the ones the web demo plays.
 
-| Target | Mutants | Score before | No bug feedback (same model) | Agent (guided) | Rounds | Tokens (agent) |
+| Target | Mutants | Score before | No bug feedback (same model) | Agent (guided) | Rounds | Tokens: agent / baseline |
 |---|---|---|---|---|---|---|
-| `examples/demo_project/pricing.py` | 37 | 37.8% | 94.6% (6,241 tokens) | 91.9% | 3 | 17,451 |
-| cachetools `func.py` | 55 | 89.1% | 96.4% (27,928 tokens) | 98.2% | 3 | 23,130 |
-| python-slugify `slugify.py` | 118 | 54.2% | 74.6% (41,841 tokens) | 88.1% | 3 | 64,871 |
-| inflection `__init__.py` | 108 | 88.9% | 88.9% (53,362 tokens) | 95.4% | 3 | 39,214 |
+| `examples/demo_project/pricing.py` | 37 | 37.8% | 97.3% | 97.3% | 4 | 28,334 / 30,888 |
+| cachetools `func.py` | 55 | 89.1% | 98.2% | 98.2% | 4 | 44,364 / 99,778 |
+| python-slugify `slugify.py` | 118 | 54.2% | **86.4%** | 81.4% | 4 | 96,638 / 98,388 |
+| inflection `__init__.py` | 108 | 88.9% | 88.9% | **92.6%** | 6 | 138,919 / 76,330 |
 
-The guided agent beat the baseline on three of four targets (cachetools +1.8 points, inflection +6.5, slugify +13.5). On the small pricing module the baseline won (94.6% vs 91.9%) and used far fewer tokens. Each number is one run of a non-deterministic model, so treat gaps of a few points as noise. The mutants that stay alive are mostly equivalent or hard to reach; I did not verify each one by hand. The baseline on inflection failed because the model invented an import that does not exist, which is a real weakness of working without seeing the code's surroundings.
+The full recording before it (same settings, one bug-fix release earlier) gave: pricing 94.6% vs 94.6%, cachetools 96.4% (agent) vs 98.2% (baseline), slugify **90.7%** vs 88.1%, inflection **91.7%** vs 88.9%.
+
+What this shows, honestly:
+
+- **The loop works.** Every agent run raised the score and every kept test passes on the real code: pricing 37.8% to 97.3%, slugify 54.2% to 81-91%, cachetools 89.1% to 96-98%.
+- **Survivor feedback gives a small, noisy edge, not a guaranteed one.** Over the two recordings (8 head-to-head runs) the guided agent was ahead 3 times, tied 3 times and behind 2 times. Single runs swing by several points (slugify: 90.7% in one recording, 81.4% in the next), so with this few runs I can't claim it beats a baseline that already has the same repair loop.
+- **It is usually cheaper.** The guided agent used fewer tokens in 6 of the 8 runs (651k vs 738k in total).
+- The bugs that stay alive are a mix of hard ones and equivalent mutants (changes no test can detect). The small model's explanation of each is in the report and on the demo page; I did not verify every one by hand.
+
+### More modules (`mutagent scan --fix`)
+
+The same agent, no per-module tuning, on modules the shipped tests barely touch:
+
+| Module | Mutants | Before | After | Tokens |
+|---|---|---|---|---|
+| python-slugify `special.py` | 9 | 77.8% | 100% | 10,134 |
+| cachetools `keys.py` (tests: `test_func.py` only) | 19 | 36.8% | 100% | 13,539 |
+| cachetools `_cached.py` (tests: `test_func.py` only) | 80 | 23.8% | 96.2% | 123,448 |
 
 Failures I hit while getting the first runs working, and what changed:
 
 - The reasoning model spent its whole reply budget thinking and returned no code. Fixes: a higher reply limit (`NEBIUS_MAX_TOKENS`), a stricter prompt, and an option to switch thinking off (`NEBIUS_EXTRA_BODY`).
 - One wrong expectation made the agent reject a whole file of otherwise good tests. It now removes only the failing test functions and re-checks the rest.
+- The model often got expectations wrong in the same way round after round. The real pytest output now goes into a one-time repair and into the next round's prompt; on `_cached.py` that took the agent from 56% to 96%.
+- The model sometimes returned a test file without closing the code block, or without any code block. Both are now accepted when they contain tests.
+- Dropping failing tests broke on parametrized tests, test classes, unittest-style classes and setup errors. All are handled now, and every time nothing can be dropped the log says why.
+- The small model's triage once hid a bug the agent could actually catch, so triage is off by default.
 - On Windows the generated tests were saved in a legacy encoding and crashed on a non-ASCII character. All files are now read and written as UTF-8.
 
 ## Safety

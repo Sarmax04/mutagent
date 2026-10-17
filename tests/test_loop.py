@@ -236,7 +236,7 @@ def test_prune_gives_up_when_nothing_would_remain():
     code = "def test_a():\n    assert False\n"
     assert prune_tests(code, ["test_a"]) is None
     assert prune_tests(code, ["missing"]) is None
-    assert failing_test_names("FAILED t.py::TestX::test_a - boom") is None
+    assert failing_test_names("FAILED t.py::TestX::test_a - boom") == ["TestX.test_a"]
     assert failing_test_names("FAILED t.py::test_a[1] - boom") == ["test_a"]
 
 
@@ -380,3 +380,98 @@ def test_dropped_tests_become_lessons_for_the_next_round(project):
     run_loop(project, "pricing.py", llm, max_rounds=2, log=quiet)
     strong_prompts = [p for tier, p in llm.prompts if tier is Tier.STRONG]
     assert any("Wrong expectations from the last round" in p for p in strong_prompts[1:])
+
+
+
+def test_extract_code_accepts_an_unclosed_final_block():
+    reply = "```python\nimport pytest\n\n\ndef test_a():\n    assert 1 == 1\n"
+    assert extract_code(reply).startswith("import pytest")
+    assert extract_code("```python\nprint(1)\n") is None
+
+
+def test_failing_tests_handles_params_classes_errors_and_other_files():
+    from mutagent.loop import failing_tests
+
+    gen = "tests/test_mutagent_generated.py"
+    out = (
+        f"FAILED {gen}::test_a[1-2] - boom\n"
+        f"ERROR {gen}::test_b[x] - AttributeError\n"
+        f"FAILED {gen}::TestC::test_d - boom\n"
+    )
+    names, _ = failing_tests(out, gen)
+    assert names == ["TestC.test_d", "test_a", "test_b"]
+    names, reason = failing_tests("FAILED tests/test_own.py::test_x - boom", gen)
+    assert names is None and "shared state" in reason
+    windows = "FAILED tests\\test_mutagent_generated.py::test_a - boom"
+    assert failing_tests(windows, gen)[0] == ["test_a"]
+    assert failing_tests("ERROR tests/test_mutagent_generated.py\n1 error during collection", gen)[0] is None
+
+
+def test_prune_tests_removes_methods_and_empty_classes():
+    from mutagent.loop import prune_tests
+
+    code = (
+        "import pytest\n\n\n"
+        "class TestA:\n    def test_one(self):\n        assert True\n\n    def test_two(self):\n        assert True\n\n\n"
+        "class TestB:\n    def test_three(self):\n        assert True\n\n\n"
+        "@pytest.mark.parametrize('x', [1])\ndef test_four(x):\n    assert x\n"
+    )
+    out = prune_tests(code, ["TestA.test_one", "TestB.test_three", "test_four"])
+    assert "test_two" in out and "test_one" not in out
+    assert "class TestB" not in out and "test_four" not in out and "parametrize" not in out
+    assert prune_tests(code, ["TestA.test_one", "TestA.test_two", "TestB.test_three", "test_four"]) is None
+    assert prune_tests(code, ["TestA.missing"]) is None
+
+
+def test_failing_parametrized_case_is_dropped_and_the_rest_kept(project):
+    wrong = (
+        "\n\n@pytest.mark.parametrize('price, pct, expected', [(100, 10, 90), (100, 0, 1)])\n"
+        "def test_param(price, pct, expected):\n    assert apply_discount(price, pct) == expected\n"
+    )
+    llm = FakeLLM([fenced(STRONG_TESTS + wrong)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet)
+    assert report.rounds[1].accepted and "dropped" in report.rounds[1].note
+    saved = (project / GENERATED_REL).read_text()
+    assert "test_param" not in saved and "test_discount_values" in saved
+
+
+def test_extract_code_accepts_a_bare_python_reply():
+    reply = "import pytest\nfrom m import f\n\ndef test_f():\n    assert f() == 1\n```"
+    assert extract_code(reply).startswith("import pytest") and "```" not in extract_code(reply)
+    assert extract_code("Sure, here are some ideas: def test_x would check ...") is None
+
+
+def test_prune_handles_unittest_style_classes():
+    from mutagent.loop import prune_tests
+
+    code = (
+        "import unittest\n\n\nclass DefaultTests(unittest.TestCase):\n"
+        "    def test_a(self):\n        self.assertTrue(True)\n\n"
+        "    def test_b(self):\n        self.assertTrue(False)\n"
+    )
+    out = prune_tests(code, ["DefaultTests.test_b"])
+    assert out is not None and "test_a" in out and "test_b" not in out
+
+
+def test_load_error_naming_a_test_drops_that_test():
+    from mutagent.loop import failing_tests
+
+    gen = "tests/test_mutagent_generated.py"
+    out = (
+        "ERROR collecting tests/test_mutagent_generated.py\n"
+        'tests/test_mutagent_generated.py::test_camelize: in "parametrize" the number of names (3)\n'
+        "1 error during collection\n"
+    )
+    assert failing_tests(out, gen)[0] == ["test_camelize"]
+
+
+def test_a_test_that_breaks_loading_is_dropped_and_the_rest_kept(project):
+    broken = (
+        "\n\n@pytest.mark.parametrize('a, b, c', [(1, 2)])\n"
+        "def test_bad_params(a, b, c):\n    assert a\n"
+    )
+    llm = FakeLLM([fenced(STRONG_TESTS + broken), fenced(STRONG_TESTS + broken)])
+    report = run_loop(project, "pricing.py", llm, max_rounds=1, log=quiet)
+    assert report.rounds[1].accepted
+    saved = (project / GENERATED_REL).read_text()
+    assert "test_bad_params" not in saved and "test_discount_values" in saved

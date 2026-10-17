@@ -2,10 +2,10 @@
   "target": "pricing.py",
   "mutant_count": 37,
   "initial_score": 37.83783783783784,
-  "final_score": 94.5945945945946,
-  "tokens_used": 6241,
+  "final_score": 97.29729729729729,
+  "tokens_used": 30888,
   "generated_path": null,
-  "generated_code": "import pytest\nfrom pricing import apply_discount, shipping_cost, is_free_shipping\n\ndef test_apply_discount_boundaries():\n    # percent boundaries inclusive [0, 100]\n    assert apply_discount(100, 0) == 100\n    assert apply_discount(100, 100) == 0\n    assert apply_discount(-10, 0) == -10\n    assert apply_discount(-10, 100) == 0\n\ndef test_apply_discount_outside_range_errors():\n    with pytest.raises(ValueError):\n        apply_discount(100, -0.000001)\n    with pytest.raises(ValueError):\n        apply_discount(100, 100.000001)\n    with pytest.raises(ValueError):\n        apply_discount(0, -1)\n    with pytest.raises(ValueError):\n        apply_discount(0, 101)\n\ndef test_apply_discount_float_precision():\n    # typical fractional discount\n    assert apply_discount(1.0, 33.3333) == pytest.approx(0.666667, rel=1e-5)\n    # ensure calculation matches formula exactly\n    p, perc = 2.5, 20\n    assert apply_discount(p, perc) == p * (1 - perc / 100)\n\n\ndef test_shipping_cost_express_weights():\n    # same weight tiers, doubled then rounded\n    assert shipping_cost(0.5, True) == 8.0      # 4.0 * 2\n    assert shipping_cost(1.0, True) == 8.0\n    assert shipping_cost(1.5, True) == pytest.approx(7.5 * 2, rel=1e-9)\n    assert shipping_cost(5.0, True) == 15.0\n    assert shipping_cost(5.5, True) == pytest.approx((7.5 + 0.5 * 1.2) * 2, rel=1e-9)\n    assert shipping_cost(6.0, True) == pytest.approx((7.5 + 1.0 * 1.2) * 2, rel=1e-9)\n\ndef test_shipping_cost_invalid_weight_errors():\n    for w in (0.0, -0.0, -0.0001, -1.0, -100.0):\n        with pytest.raises(ValueError) as ei:\n            shipping_cost(w)\n        assert str(ei.value) == \"weight must be positive\"\n\ndef test_is_free_shipping_logic():\n    # member=False relies solely on order_total >= 50\n    assert is_free_shipping(49.999999, False) is False\n    assert is_free_shipping(50.0, False) is True\n    assert is_free_shipping(50.000001, False) is True\n\n    # member=True adds alternative condition order_total >= 25\n    assert is_free_shipping(24.999999, True) is False\n    assert is_free_shipping(25.0, True) is True\n    assert is_free_shipping(25.000001, True) is True\n    # below 25 but member true => false\n    assert is_free_shipping(0.0, True) is False\n    assert is_free_shipping(24.0, True) is False\n\n    # above 50 always true irrespective of member\n    assert is_free_shipping(50.0, True) is True\n    assert is_free_shipping(50.0, False) is True\n    assert is_free_shipping(1000.0, True) is True\n    assert is_free_shipping(1000.0, False) is True\n\n    # between 25 and 50: only member true yields free shipping\n    assert is_free_shipping(30.0, True) is True\n    assert is_free_shipping(30.0, False) is False\n    assert is_free_shipping(49.99, True) is True\n    assert is_free_shipping(49.99, False) is False\n",
+  "generated_code": "import pytest\nfrom pricing import apply_discount, shipping_cost, is_free_shipping\n\ndef test_apply_discount_valid_percent_zero():\n    assert apply_discount(100, 0) == 100\n\ndef test_apply_discount_valid_percent_hundred():\n    assert apply_discount(100, 100) == 0\n\ndef test_apply_discount_invalid_percent_low():\n    with pytest.raises(ValueError, match=\"percent must be between 0 and 100\"):\n        apply_discount(100, -0.1)\n\ndef test_apply_discount_invalid_percent_high():\n    with pytest.raises(ValueError, match=\"percent must be between 0 and 100\"):\n        apply_discount(100, 100.1)\n\ndef test_apply_discount_float_price_and_percent():\n    assert apply_discount(83.33, 15) == pytest.approx(70.8305)\n\ndef test_shipping_weight_boundary_one():\n    assert shipping_cost(1) == 4.0\n\ndef test_shipping_weight_boundary_five():\n    assert shipping_cost(5) == 7.5\n\ndef test_shipping_weight_over_five_non_express():\n    assert shipping_cost(6) == 8.7\n    assert shipping_cost(10) == 13.5\n\ndef test_shipping_weight_less_than_or_equal_zero():\n    with pytest.raises(ValueError, match=\"weight must be positive\"):\n        shipping_cost(0)\n    with pytest.raises(ValueError, match=\"weight must be positive\"):\n        shipping_cost(-0.1)\n\ndef test_shipping_express_true_weight_one():\n    assert shipping_cost(1, express=True) == 8.0\n\ndef test_shipping_express_true_weight_five():\n    assert shipping_cost(5, express=True) == 15.0\n\ndef test_shipping_express_true_weight_over_five():\n    assert shipping_cost(6, express=True) == 17.4\n    assert shipping_cost(10, express=True) == 27.0\n\ndef test_is_free_shipping_member_threshold():\n    assert is_free_shipping(25, True) is True\n    assert is_free_shipping(24.99, True) is False\n\ndef test_is_free_shipping_non_member_threshold():\n    assert is_free_shipping(50, False) is True\n    assert is_free_shipping(49.99, False) is False\n\ndef test_is_free_shipping_edge_cases():\n    assert is_free_shipping(0, True) is False\n    assert is_free_shipping(0, False) is False\n    assert is_free_shipping(100, True) is True\n    assert is_free_shipping(100, False) is True\n\ndef test_shipping_weight_tier_two_lower_bound():\n    assert shipping_cost(1.01) == 7.5\n    assert shipping_cost(4.99) == 7.5\n\ndef test_shipping_weight_at_five_and_just_above():\n    assert shipping_cost(5.0) == 7.5\n    assert shipping_cost(5.01) == 7.51\n\n\ndef test_apply_discount_decimal_precision():\n    assert apply_discount(1, 33) == pytest.approx(0.67, rel=1e-9)\n    assert apply_discount(10, 33) == pytest.approx(6.70, rel=1e-9)\n    assert apply_discount(100, 33) == pytest.approx(67.00, rel=1e-9)\n\ndef test_shipping_weight_just_above_one():\n    assert shipping_cost(1.000001) == 7.5\n    assert shipping_cost(1.000001, express=True) == 15.0\n\ndef test_is_free_shipping_boundary_values():\n    assert is_free_shipping(25.0, True) is True\n    assert is_free_shipping(25.0, False) is False\n    assert is_free_shipping(50.0, True) is True\n    assert is_free_shipping(50.0, False) is True\n    assert is_free_shipping(49.999999, True) is True\n    assert is_free_shipping(49.999999, False) is False\n",
   "mutants": [
     {
       "id": 0,
@@ -232,25 +232,16 @@
     },
     {
       "round": 1,
-      "score": 67.56756756756756,
-      "killed": 25,
-      "survived": 12,
+      "score": 91.89189189189189,
+      "killed": 34,
+      "survived": 3,
       "accepted": true,
-      "note": "accepted: score improved (2 failing test(s) dropped)",
-      "tokens_used": 1329,
+      "note": "accepted: score improved",
+      "tokens_used": 1286,
       "survivors": [
-        11,
-        12,
         18,
         19,
-        20,
-        21,
-        28,
-        29,
-        30,
-        33,
-        35,
-        36
+        21
       ],
       "triaged": []
     },
@@ -259,9 +250,9 @@
       "score": 91.89189189189189,
       "killed": 34,
       "survived": 3,
-      "accepted": true,
-      "note": "accepted: score improved (1 failing test(s) dropped)",
-      "tokens_used": 2137,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 6511,
       "survivors": [
         18,
         19,
@@ -271,19 +262,58 @@
     },
     {
       "round": 3,
-      "score": 94.5945945945946,
-      "killed": 35,
-      "survived": 2,
+      "score": 97.29729729729729,
+      "killed": 36,
+      "survived": 1,
       "accepted": true,
-      "note": "accepted: score improved (1 failing test(s) dropped)",
-      "tokens_used": 2775,
+      "note": "accepted: score improved (1 failing test(s) dropped) (1 repaired from real output)",
+      "tokens_used": 6761,
       "survivors": [
-        19,
-        21
+        19
+      ],
+      "triaged": []
+    },
+    {
+      "round": 4,
+      "score": 97.29729729729729,
+      "killed": 36,
+      "survived": 1,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 3084,
+      "survivors": [
+        19
+      ],
+      "triaged": []
+    },
+    {
+      "round": 5,
+      "score": 97.29729729729729,
+      "killed": 36,
+      "survived": 1,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 5939,
+      "survivors": [
+        19
+      ],
+      "triaged": []
+    },
+    {
+      "round": 6,
+      "score": 97.29729729729729,
+      "killed": 36,
+      "survived": 1,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 7307,
+      "survivors": [
+        19
       ],
       "triaged": []
     }
   ],
+  "explanations": {},
   "models": {
     "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
     "strong": "nvidia/nemotron-3-super-120b-a12b"

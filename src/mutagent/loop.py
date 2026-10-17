@@ -43,7 +43,9 @@ SYSTEM_PROMPT = (
     "types, and test boundary values on both sides of every comparison. Before "
     "asserting a value, read the source to see exactly what it returns or raises "
     "at that input (an input that looks like an edge case may be valid). Tests run "
-    "only against the real code; never write a test that tries to reproduce a mutant. Keep any "
+    "only against the real code; never write a test that tries to reproduce a mutant. "
+    "Never change module-level state of the code under test (global lists, dicts, "
+    "registries) unless the same test restores it. Keep any "
     "reasoning short. Your reply must be ONE ```python block with the complete "
     "test file; do not explain, and do not think out loud in the reply."
 )
@@ -95,11 +97,28 @@ def module_name(target: str) -> str:
 _FENCE = re.compile(r"```(?:python|py)?[ \t]*\n(.*?)```", re.DOTALL)
 
 
+_OPEN_FENCE = re.compile(r"```(?:python|py)?[ \t]*\n")
+
+
 def extract_code(reply: str) -> str | None:
-    """First fenced block that contains a test function, else None."""
-    for block in _FENCE.findall(strip_reasoning(reply)):
+    """First fenced block that contains a test function, else None.
+
+    A reply whose last block was opened but never closed (the model just stopped) is
+    accepted too, as long as it contains a test function.
+    """
+    text = strip_reasoning(reply)
+    for block in _FENCE.findall(text):
         if "def test" in block:
             return block.strip() + "\n"
+    opens = list(_OPEN_FENCE.finditer(text))
+    if opens:
+        rest = text[opens[-1].end():]
+        if "```" not in rest and "def test" in rest:
+            return rest.strip() + "\n"
+    # No fence at all: the whole reply is the file when it starts like Python code.
+    bare = re.sub(r"\n```\s*$", "", text.strip())
+    if "```" not in bare and "def test" in bare and re.match(r"(import |from |def |@|#|\"\"\"|class )", bare):
+        return bare + "\n"
     return None
 
 
@@ -202,51 +221,110 @@ def build_messages(
     ]
 
 
-_FAILED_LINE = re.compile(r"^FAILED\s+(\S+)", re.MULTILINE)
+_RESULT_LINE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
+
+
+def failing_tests(output: str, generated_rel: str | None = None) -> tuple[list[str] | None, str]:
+    """Failing tests of the generated file, from pytest's short summary.
+
+    Names are ``test_x`` for functions and ``TestClass.test_x`` for methods; the
+    parameters of parametrized tests are ignored, setup/teardown errors count as
+    failures. Returns ``(None, reason)`` when nothing can be pinned on single tests.
+    """
+    if collection_failed(output):
+        if generated_rel is not None:
+            stem = re.escape(generated_rel).replace("/", r"[/\\\\]")
+            named = sorted(set(re.findall(stem + r"::(\w+)", output)))
+            if named:
+                return named, ""
+        return None, "pytest could not load the file"
+    names: set[str] = set()
+    outside: list[str] = []
+    for node_id in _RESULT_LINE.findall(output):
+        parts = node_id.split("::")
+        if len(parts) < 2:
+            return None, f"pytest reported {node_id} without a test name"
+        path = parts[0].replace("\\", "/")
+        if generated_rel is not None and path != generated_rel:
+            outside.append(node_id)
+            continue
+        pieces = [part.split("[")[0] for part in parts[1:]]
+        if len(pieces) > 2:
+            return None, "the failing tests are in nested classes"
+        names.add(".".join(pieces))
+    if not names:
+        if outside:
+            return None, "only the project's own tests failed, so the new tests probably change shared state"
+        return None, "pytest did not name any failing test"
+    return sorted(names), ""
 
 
 def failing_test_names(output: str) -> list[str] | None:
-    """Names of top-level test functions that failed, from pytest's short summary.
+    """Backwards-compatible wrapper: just the names, or None."""
+    return failing_tests(output)[0]
 
-    None when the failures cannot be pinned on whole functions (collection errors,
-    test classes), in which case nothing is pruned.
-    """
-    if re.search(r"^ERROR\b", output, re.MULTILINE):
-        return None
-    names: list[str] = []
-    for node_id in _FAILED_LINE.findall(output):
-        parts = node_id.split("::")
-        if len(parts) != 2:
-            return None
-        names.append(parts[1].split("[")[0])
-    return sorted(set(names)) or None
+
+_FUNC = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 
 def prune_tests(code: str, names: Sequence[str]) -> str | None:
-    """``code`` without the named top-level test functions, or None if impossible."""
+    """``code`` without the named tests, or None if impossible.
+
+    ``test_x`` removes a top-level function, ``TestClass.test_x`` a method; a class
+    whose test methods are all removed is removed as a whole. None when a name is
+    not found or no test would remain.
+    """
     try:
         tree = ast.parse(code)
     except SyntaxError:
         return None
-    funcs = {
-        node.name: node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    if any(name not in funcs for name in names):
-        return None
-    remaining = [n for n in funcs if n.startswith("test") and n not in names]
+    top = {node.name: node for node in tree.body if isinstance(node, (*_FUNC, ast.ClassDef))}
+    doomed: list[ast.AST] = []
+    methods: dict[str, set[str]] = {}
+    for name in names:
+        if "." in name:
+            cls_name, method = name.split(".", 1)
+            cls = top.get(cls_name)
+            if not isinstance(cls, ast.ClassDef) or not any(
+                isinstance(b, _FUNC) and b.name == method for b in cls.body
+            ):
+                return None
+            methods.setdefault(cls_name, set()).add(method)
+        else:
+            node = top.get(name)
+            if not isinstance(node, _FUNC):
+                return None
+            doomed.append(node)
+    for cls_name, gone in methods.items():
+        cls = top[cls_name]
+        tests_in_class = {b.name for b in cls.body if isinstance(b, _FUNC) and b.name.startswith("test")}
+        if tests_in_class <= gone:
+            doomed.append(cls)
+        else:
+            doomed += [b for b in cls.body if isinstance(b, _FUNC) and b.name in gone]
+    remaining = 0
+    for node in tree.body:
+        if node in doomed:
+            continue
+        if isinstance(node, _FUNC) and node.name.startswith("test"):
+            remaining += 1
+        elif isinstance(node, ast.ClassDef):
+            remaining += sum(
+                1 for b in node.body
+                if isinstance(b, _FUNC) and b.name.startswith("test") and b not in doomed
+            )
     if not remaining:
         return None
     lines = code.splitlines(keepends=True)
-    for name in sorted(names, key=lambda n: funcs[n].lineno, reverse=True):
-        node = funcs[name]
-        start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
+    for node in sorted(doomed, key=lambda n: n.lineno, reverse=True):
+        start = min([node.lineno, *(d.lineno for d in getattr(node, "decorator_list", []))])
         del lines[start - 1 : node.end_lineno]
     return "".join(lines).rstrip() + "\n"
 
 
-_COLLECTION = re.compile(r"errors? during collection|ERROR collecting|^ERROR\s+\S+\.py", re.MULTILINE)
+_COLLECTION = re.compile(
+    r"errors? during collection|ERROR collecting|^ERROR\s+\S+\.py(?:\s|$)", re.MULTILINE
+)
 
 
 def collection_failed(output: str) -> bool:
@@ -448,7 +526,7 @@ def run_loop(
     llm: ChatModel,
     *,
     max_rounds: int = 4,
-    patience: int = 2,
+    patience: int = 3,
     test_timeout: float = 20.0,
     triage: bool = False,
     generated_rel: str = GENERATED_REL,
@@ -566,21 +644,33 @@ def _run(
                 generated.write_text(code, encoding="utf-8")
                 check = run_tests(work, test_timeout, chosen)
         full, failure, dropped = code, "", []
-        if not check.passed:
-            every = run_tests(work, test_timeout, [generated_rel], fail_fast=False)
-            names = None if every.timed_out else failing_test_names(every.output)
-            pruned = prune_tests(code, names) if names else None
-            failure = every.output
-            if pruned is not None:
-                generated.write_text(pruned, encoding="utf-8")
+        if not check.passed and not check.timed_out:
+            # One wrong expectation should not throw away the good tests: drop only the
+            # failing tests, re-check, and repeat (a fail-fast run shows one failure at a time).
+            candidate, removed = code, []
+            for _ in range(5):
+                every = run_tests(work, test_timeout, chosen, fail_fast=False)
+                if every.timed_out:
+                    log(f"round {rnd}: the tests timed out, so nothing was dropped")
+                    break
+                failure = failure or every.output
+                names, reason = failing_tests(every.output, generated_rel)
+                if names is None:
+                    log(f"round {rnd}: nothing was dropped: {reason}")
+                    break
+                pruned = prune_tests(candidate, names)
+                if pruned is None:
+                    log(f"round {rnd}: could not drop {', '.join(names)} (not found, or no test would remain)")
+                    break
+                candidate, removed = pruned, removed + names
+                generated.write_text(candidate, encoding="utf-8")
                 recheck = run_tests(work, test_timeout, chosen)
                 if recheck.passed:
-                    log(f"round {rnd}: dropped {len(names)} failing test(s): {', '.join(names)}")
-                    code, check, dropped = pruned, recheck, list(names)
-                else:
-                    log(f"round {rnd}: dropping {', '.join(names)} was not enough. Output (last part):\n{recheck.output.strip()[-800:]}")
-            elif names is None:
-                log(f"round {rnd}: the failures could not be pinned on single test functions, so nothing was dropped")
+                    log(f"round {rnd}: dropped {len(removed)} failing test(s): {', '.join(removed)}")
+                    code, check, dropped = candidate, recheck, removed
+                    break
+            else:
+                log(f"round {rnd}: still failing after dropping {', '.join(removed)}")
         return Attempt(code, check, dropped, failure, full, did_repair)
 
     start_tokens = spent()
@@ -629,6 +719,9 @@ def _run(
                 log(f"round {rnd}: the reply has a {problem}; asking the model to fix it once")
                 repaired = True
                 code = repair(llm, messages, code, problem) or code
+                still = syntax_problem(code)
+                if still:
+                    log(f"round {rnd}: the repaired file still has a {still}")
         problems = code_filter(code) if (code is not None and code_filter) else []
         if code is None:
             info = getattr(llm, "last_info", "")

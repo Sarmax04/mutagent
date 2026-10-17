@@ -9,7 +9,10 @@ Run it from the repository root, with .env filled in:
 
     python scripts/record.py                    # all presets
     python scripts/record.py pricing-toy        # just one
-    python scripts/record.py --no-triage        # do not use the FAST model
+    python scripts/record.py --triage           # also let the FAST model set aside likely-unkillable bugs
+
+Defaults match the published recordings: up to 6 rounds, stop after 3 rounds
+without progress, no triage, and the FAST model explains the bugs that survive.
 
 Nothing is written into the example projects (``--no-write-back``). Recordings must
 come from real runs only; never edit them by hand.
@@ -36,8 +39,9 @@ def run(cmd: list[str]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("presets", nargs="*", help="preset ids (default: all)")
-    parser.add_argument("--rounds", type=int, default=3)
-    parser.add_argument("--no-triage", action="store_true", help="skip the FAST-model triage step")
+    parser.add_argument("--rounds", type=int, default=6)
+    parser.add_argument("--triage", action="store_true", help="let the FAST model set aside likely-unkillable bugs")
+    parser.add_argument("--no-triage", action="store_true", help=argparse.SUPPRESS)  # old flag; triage is off by default
     parser.add_argument("--skip-baseline", action="store_true")
     args = parser.parse_args()
 
@@ -56,7 +60,7 @@ def main() -> int:
         if preset.tests:
             common += ["--tests", *preset.tests]
         guided = base + ["run", *common, "--rounds", str(args.rounds), "--report", f"replays/{preset.id}.json"]
-        if not args.no_triage:
+        if args.triage and not args.no_triage:
             guided.append("--triage")
         guided.append("--explain")
         failures += run(guided) != 0

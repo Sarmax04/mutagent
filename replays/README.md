@@ -14,11 +14,11 @@ The baseline file is the comparison: the same loop, model and acceptance rule, b
 Record everything from **real** runs (never hand-edit a recording or fill it from a fake model, because judges will read it as evidence):
 
 ```bash
-python scripts/record.py                  # all four presets, agent run + baseline
+python scripts/record.py                  # all four presets, agent run + baseline (up to 6 rounds)
 python scripts/record.py cachetools-func  # just one preset
-python scripts/record.py --no-triage      # do not use the small FAST model
+python scripts/record.py --triage         # also let the small FAST model set aside likely-unkillable bugs
 ```
 
 Run it from the repository root with `.env` filled in. The slow presets (`inflection`, `slugify`) take several minutes because every round re-scores more than a hundred planted bugs.
 
-Each report holds the score per round, which planted bugs were still alive after each round, the tests the agent kept, token counts, the bugs the small model set aside as unkillable (when triage ran) and the model names.
+Each report holds the score per round, which planted bugs were still alive after each round, the tests the agent kept, token counts, the small model's one-line explanation of each bug that survived, the bugs it set aside as unkillable (only with `--triage`) and the model names.

@@ -2,10 +2,10 @@
   "target": "pricing.py",
   "mutant_count": 37,
   "initial_score": 37.83783783783784,
-  "final_score": 91.89189189189189,
-  "tokens_used": 17451,
+  "final_score": 97.29729729729729,
+  "tokens_used": 28334,
   "generated_path": null,
-  "generated_code": "from pricing import apply_discount, shipping_cost, is_free_shipping\n\ndef test_apply_discount_invalid_percent_zero_and():\n    try:\n        apply_discount(100, -5)\n        assert False, \"expected ValueError\"\n    except ValueError:\n        pass\n    try:\n        apply_discount(100, 105)\n        assert False, \"expected ValueError\"\n    except ValueError:\n        pass\n\n\n\ndef test_apply_discount_lower_bound_one():\n    # Mutant 24 uses <1, should accept 0.5 incorrectly, but we test that original rejects negative\n    try:\n        apply_discount(100, -0.5)\n        assert False, \"expected ValueError for negative percent\"\n    except ValueError:\n        pass\n    # Also check that 0.5 is accepted by original\n    assert apply_discount(100, 0.5) == 99.5\n\ndef test_apply_discount_upper_bound_101():\n    # Mutant 25 uses >101, should accept 100.5 incorrectly\n    # We test that original rejects >100\n    try:\n        apply_discount(100, 100.5)\n        assert False, \"expected ValueError for percent>100\"\n    except ValueError:\n        pass\n    # Original accepts up to 100\n    assert apply_discount(100, 100) == 0\n\ndef test_shipping_weight_zero():\n    # Mutant 10 changes <=0 to <0, so weight=0 should trigger error in original\n    try:\n        shipping_cost(0)\n        assert False, \"expected ValueError for weight=0\"\n    except ValueError:\n        pass\n\ndef test_shipping_weight_threshold_one():\n    # Mutant 11 changes <=1 to <1, so weight=1 should fall through to elif in mutant\n    # Original: weight=1 -> cost=4.0\n    assert shipping_cost(1) == 4.0\n    # Mutant would compute: weight=1 -> not <1, so check elif weight<=5 -> cost=7.5\n    # We don't assert mutant here; just ensure original behaves as expected\n\ndef test_shipping_weight_threshold_five():\n    # Mutant 12 negates condition: elif not weight_kg <=5, so weight=5 triggers else incorrectly\n    # Original: weight=5 -> cost=7.5\n    assert shipping_cost(5) == 7.5\n    # Mutant: weight=5 -> not (5<=5) -> False -> goes to else -> cost = 7.5 + (5-5)*1.2 = 7.5 -> then express? no -> 7.5\n    # Actually same result, need weight=4.5 to see difference?\n    # Let's test weight=4.5: original -> elif weight<=5 -> cost=7.5\n    # mutant: weight=4.5 -> not (4.5<=5) -> not True -> False -> else -> cost = 7.5 + (4.5-5)*1.2 = 7.5 -0.6 = 6.9\n    assert shipping_cost(4.5) == 7.5\n    # We'll rely on another test for mutant 12 detection via weight=4.5 expecting 7.5 but mutant gives 6.9\n\ndef test_shipping_weight_six():\n    # Mutant 28 changes <=5 to <=6, so weight=6 should be in elif in mutant (cost=7.5) but original goes to else\n    # Original: weight=6 -> else -> cost = 7.5 + (6-5)*1.2 = 8.7\n    assert shipping_cost(6) == 8.7\n    # Mutant 28: weight=6 -> elif weight<=6 -> True -> cost=7.5\n\ndef test_shipping_cost_express_double():\n    # Mutant 20 changes *2 to /2, mutant 30 changes *2 to *3\n    # Test with weight that triggers else branch\n    base = shipping_cost(6)  # 8.7\n    # Express should double: 17.4\n    assert shipping_cost(6, express=True) == 17.4\n    # Mutant 20 would give 8.7 / 2 = 4.35\n    # Mutant 30 would give 8.7 * 3 = 26.1\n\ndef test_shipping_cost_rounding():\n    # Mutant 21 changes rounding from 2 to 3 decimal places\n    # Need a case where rounding to 2 vs 3 differs\n    # weight=1 -> cost=4.0, express -> 8.0 -> round same\n    # weight=2 -> cost=7.5, express -> 15.0\n    # need fractional cents after doubling\n    # weight=1.5 -> first tier? weight<=1? no, 1.5>1 so second tier: cost=7.5\n    # Actually weight=1.5: <=1? no, <=5? yes -> cost=7.5\n    # express -> 15.0\n    # Let's compute: else branch with fraction\n    # weight=5.1 -> else: cost = 7.5 + (0.1)*1.2 = 7.5 + 0.12 = 7.62\n    # express -> 15.24 -> round to 2: 15.24, round to 3: 15.240 -> same\n    # Need more precision: weight=5.01 -> 7.5 + 0.01*1.2 = 7.5 + 0.012 = 7.512\n    # express -> 15.024 -> round to 2: 15.02, round to 3: 15.024\n    cost = shipping_cost(5.01)  # should be 7.512\n    assert cost == 7.51  # rounded to 2 decimals\n    exp_cost = shipping_cost(5.01, express=True)  # 15.024 -> 15.02\n    assert exp_cost == 15.02\n    # Mutant 21 would return 15.024 (rounded to 3 decimals) -> but function returns that value, so we'd get 15.024 vs expected 15.02 -> fail\n\ndef test_is_free_shipping_threshold_fifty():\n    # Mutant 22 changes >=50 to >50, so order_total=50 should fail in mutant\n    # Original: order_total=50, member=False -> True (because >=50)\n    assert is_free_shipping(50, False) is True\n    # Mutant 22: 50>50? False, member and ... False -> False\n\ndef test_is_free_shopping_member_threshold_twentyfive():\n    # Mutant 32 changes >=25 to >25, so order_total=25, member=True should fail in mutant\n    # Original: order_total=25, member=True -> True (because member and >=25)\n    assert is_free_shipping(25, True) is True\n    # Mutant 32: member and order_total>25 -> True and 25>25? False -> False\n\ndef test_is_free_shipping_member_threshold_twentysix():\n    # Mutant 34 changes >=25 to >=26, so order_total=25, member=True should fail in mutant\n    assert is_free_shipping(25, True) is True\n    # Mutant 34: member and order_total>=26 -> True and 25>=26? False -> False\n\ndef test_is_free_shipping_fiftyone():\n    # Mutant 31 changes >=50 to >=51, so order_total=50, member=False should fail in mutant\n    assert is_free_shipping(50, False) is True\n    # Mutant 31: 50>=51? False -> False\n\ndef test_is_free_shipping_operator_or():\n    # Mutant 23 changes 'and' to 'or' in the member clause\n    # So condition becomes: order_total>=50 or (member or order_total>=25)\n    # This makes it easier to get free shipping: if member=True, always true regardless of order_total\n    # Test: member=True, order_total=0 should be False in original, True in mutant\n    assert is_free_shipping(0, True) is False\n    # Mutant 23: 0>=50? False, (True or 0>=25?) -> (True or False) -> True -> False or True -> True\n",
+  "generated_code": "from pricing import apply_discount, shipping_cost, is_free_shipping\n\ndef test_apply_discount_percent_zero_and_hundred_boundaries():\n    assert apply_discount(100, 0) == 100\n    assert apply_discount(100, 100) == 0\n\ndef test_apply_discount_invalid_negative_one_and_101():\n    try:\n        apply_discount(100, -1)\n        assert False, \"Expected ValueError\"\n    except ValueError:\n        pass\n    try:\n        apply_discount(100, 101)\n        assert False, \"Expected ValueError\"\n    except ValueError:\n        pass\n\ndef test_apply_discount_invalid_minus_one_and_100():\n    try:\n        apply_discount(100, -1)\n        assert False, \"Expected ValueError for percent=-1\"\n    except ValueError:\n        pass\n    result = apply_discount(100, 100)\n    assert result == 0\n\ndef test_shipping_cost_weight_zero_raises():\n    try:\n        shipping_cost(0)\n        assert False, \"Expected ValueError for weight=0\"\n    except ValueError:\n        pass\n\ndef test_shipping_cost_weight_negative_raises():\n    try:\n        shipping_cost(-0.1)\n        assert False, \"Expected ValueError for negative weight\"\n    except ValueError:\n        pass\n\ndef test_shipping_cost_weight_exactly_one():\n    assert shipping_cost(1) == 4.0\n\ndef test_shipping_cost_weight_just_above_one():\n    assert shipping_cost(1.0001) == 7.5\n\ndef test_shipping_cost_weight_exactly_five():\n    assert shipping_cost(5) == 7.5\n\ndef test_shipping_cost_weight_just_above_five():\n    # weight=5.0001 is still <=5, so cost=7.5 (no extra per kg yet)\n    assert shipping_cost(5.0001) == 7.5\n\ndef test_shipping_cost_express_true():\n    assert shipping_cost(1, express=True) == 8.0   # 4.0 * 2\n    assert shipping_cost(5, express=True) == 15.0  # 7.5 * 2\n    assert shipping_cost(10, express=True) == 27.0 # (7.5 + 5*1.2)*2 = (7.5+6)*2 = 13.5*2 = 27.0\n\ndef test_is_free_shipping_order_total_exactly_50_non_member():\n    assert is_free_shipping(50, False) is True\n\ndef test_is_free_shipping_order_total_49_member_true():\n    # Original: order_total=49, member=True -> 49>=50? F, (T and 49>=25? T) => T\n    # Mutant 23: order_total >= 50 or (member or order_total >= 25) -> F or (T or T) => T -> still true.\n    # Need a case where original is False and mutant is True.\n    # Original false when: order_total < 50 and not (member and order_total >= 25)\n    # Mutant 23 false only when: order_total < 50 and not member and order_total < 25\n    # So pick order_total=24, member=True: original -> F or (T and F) => F.\n    # Mutant 23 -> F or (T or F) => T.\n    assert is_free_shipping(24, True) is False  # Original: not free\n\ndef test_is_free_shipping_order_total_exactly_25_member_true():\n    assert is_free_shipping(25, True) is True\n\ndef test_is_free_shipping_order_total_exactly_24_member_true():\n    assert is_free_shipping(24, True) is False\n\ndef test_is_free_shipping_order_total_exactly_51():\n    assert is_free_shipping(50, False) is True\n\ndef test_is_free_shipping_order_total_exactly_26_member_true():\n    assert is_free_shipping(25, True) is True\n\ndef test_shipping_cost_weight_thresholds_mutant_18_and_28():\n    # Mutant 18: first tier up to 2kg (so weight=2 -> cost=4.0)\n    # Mutant 28: second tier up to 6kg (so weight=6 -> cost=7.5)\n    assert shipping_cost(2) == 7.5   # original: >1 -> 7.5\n    assert shipping_cost(6) == 8.7   # original: >5 -> 7.5 + (6-5)*1.2 = 8.7\n\ndef test_shipping_cost_express_rounding_mutant_21():\n    # Base cost where express doubles to a value with non-zero third decimal.\n    # w = 5 + delta, base = 7.5 + 1.2*delta\n    # Choose delta so that 1.2*delta = 0.001 -> delta = 0.001/1.2\n    w = 5 + 0.001/1.2\n    result = shipping_cost(w, express=True)\n    # Original: round to 2 decimals\n    assert result == 15.00\n\ndef test_apply_discount_boundary_one():\n    # Mutant 24: if percent < 1 or percent > 100 -> raises for percent in [0,1)\n    # Original: percent=0.5 is valid.\n    result = apply_discount(100, 0.5)\n    assert result == 99.5  # 100 - 100*0.5/100 = 100 - 0.5 = 99.5\n\ndef test_apply_discount_boundary_hundred_one():\n    # Mutant 25: if percent < 0 or percent > 101 -> allows percent=100.5\n    # Original: percent=100.5 is invalid.\n    try:\n        apply_discount(100, 100.5)\n        assert False, \"Expected ValueError for percent=100.5\"\n    except ValueError:\n        pass\n",
   "mutants": [
     {
       "id": 0,
@@ -232,52 +232,60 @@
     },
     {
       "round": 1,
-      "score": 91.89189189189189,
-      "killed": 34,
-      "survived": 3,
+      "score": 97.29729729729729,
+      "killed": 36,
+      "survived": 1,
       "accepted": true,
-      "note": "accepted: score improved (2 failing test(s) dropped)",
-      "tokens_used": 7109,
+      "note": "accepted: score improved (3 repaired from real output)",
+      "tokens_used": 13519,
       "survivors": [
-        14,
-        18,
         19
       ],
       "triaged": []
     },
     {
       "round": 2,
-      "score": 91.89189189189189,
-      "killed": 34,
-      "survived": 3,
+      "score": 97.29729729729729,
+      "killed": 36,
+      "survived": 1,
       "accepted": false,
       "note": "rejected: no score improvement",
-      "tokens_used": 4297,
+      "tokens_used": 7911,
       "survivors": [
-        14,
-        18,
         19
       ],
       "triaged": []
     },
     {
       "round": 3,
-      "score": 91.89189189189189,
-      "killed": 34,
-      "survived": 3,
+      "score": 97.29729729729729,
+      "killed": 36,
+      "survived": 1,
       "accepted": false,
       "note": "rejected: no score improvement",
-      "tokens_used": 6045,
+      "tokens_used": 2791,
       "survivors": [
-        14,
-        18,
         19
       ],
-      "triaged": [
-        14
-      ]
+      "triaged": []
+    },
+    {
+      "round": 4,
+      "score": 97.29729729729729,
+      "killed": 36,
+      "survived": 1,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 3896,
+      "survivors": [
+        19
+      ],
+      "triaged": []
     }
   ],
+  "explanations": {
+    "19": "Tests don't check the cost calculation when weight_kg is exactly 5, so the boundary where the original and mutant differ isn't covered."
+  },
   "models": {
     "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
     "strong": "nvidia/nemotron-3-super-120b-a12b"

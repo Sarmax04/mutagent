@@ -71,6 +71,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--explain", action="store_true", help="use the FAST model to explain each surviving bug in one line")
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--report", default="mutagent_report.json")
+    p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
     p.add_argument("--min-score", type=float, help="exit with code 4 if the final score is below this (for CI)")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
 
@@ -84,6 +85,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--budget", type=int, help="token cap; overrides NEBIUS_TOKEN_BUDGET")
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--report", default="mutagent_baseline_report.json")
+    p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
 
     p = sub.add_parser("serve", help="start the web demo (needs: pip install -e \".[web]\")")
@@ -215,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             args.target,
             llm,
             max_rounds=args.rounds,
+            patience=args.patience,
             test_timeout=args.test_timeout,
             triage=args.triage if args.cmd == "run" else False,
             guided=args.cmd == "run",

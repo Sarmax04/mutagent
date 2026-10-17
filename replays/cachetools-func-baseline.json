@@ -2,10 +2,10 @@
   "target": "src/cachetools/func.py",
   "mutant_count": 55,
   "initial_score": 89.0909090909091,
-  "final_score": 96.36363636363636,
-  "tokens_used": 27928,
+  "final_score": 98.18181818181819,
+  "tokens_used": 99778,
   "generated_path": null,
-  "generated_code": "import random\nimport time\nimport pytest\nfrom cachetools.func import (\n    fifo_cache,\n    lfu_cache,\n    lru_cache,\n    rr_cache,\n    ttl_cache,\n    cached,\n)\n\n\ndef dummy():\n    pass\n\n\n@pytest.mark.parametrize(\"decorator\", [fifo_cache, lfu_cache, lru_cache, rr_cache, ttl_cache])\ndef test_none_maxsize_is_supported(decorator):\n    f = decorator(maxsize=None)(dummy)\n    assert f.cache_parameters()[\"maxsize\"] is None\n    assert isinstance(f.cache_info()[2], int) or f.cache_info()[2] is None\n    assert len(f.cache_info()) == 4\n\n\n\n\n\n\n@pytest.mark.parametrize(\"decorator_factory\", [\n    lambda: fifo_cache(maxsize=1),\n    lambda: lfu_cache(maxsize=1),\n    lambda: lru_cache(maxsize=1),\n    lambda: rr_cache(maxsize=1, choice=lambda x: x[0]),\n    lambda: ttl_cache(maxsize=1, ttl=10),\n])\ndef test_single_element_cache_behaves_as_expected(decorator_factory):\n    call_log = []\n    def fn(x):\n        call_log.append(x)\n        return x * 2\n    dec = decorator_factory()(fn)\n    assert dec(1) == 2\n    assert dec(1) == 2\n    assert call_log.count(1) == 1\n    assert dec(2) == 4\n    assert call_log[-1] == 2\n    assert call_log.count(2) == 1\n    assert dec(1) == 2\n    assert call_log.count(1) == 2\n\n\n@pytest.mark.parametrize(\"decorator\", [fifo_cache, lfu_cache, lru_cache, rr_cache])\ndef test_default_maxsize_is_128(decorator):\n    c = decorator()(lambda x: x)\n    assert c.cache_parameters()[\"maxsize\"] == 128\n\n\n\n\n\n\ndef test_cache_parameters_returns_copy():\n    d = lru_cache(maxsize=42, typed=True)(lambda: None)\n    params = d.cache_parameters()\n    params[\"maxsize\"] = 99\n    assert d.cache_parameters()[\"maxsize\"] == 42\n    params.clear()\n    assert d.cache_parameters()\n\n\ndef test_key_normalization_when_typed_false():\n    dec = lru_cache(typed=False)(lambda x: x)\n    assert dec(1) == 1\n    assert dec(1.0) == 1\n    assert dec.cache_info().hits == 1\n\n\ndef test_key_distinction_when_typed_true():\n    dec = lru_cache(typed=True)(lambda x: x)\n    assert dec(1) == 1\n    assert dec(1.0) == 1.0\n    info = dec.cache_info()\n    assert info.hits == 0\n    assert info.misses == 2\n\n\ndef test_cache_info_hits_misses_maxsize_currsize_structure():\n    dec = lru_cache(maxsize=3)(lambda x: x)\n    assert dec.cache_info() == (0, 0, 3, 0)\n    dec(1)\n    assert dec.cache_info() == (0, 1, 3, 1)\n    dec(1)\n    assert dec.cache_info() == (1, 1, 3, 1)\n    dec(2)\n    assert dec.cache_info() == (1, 2, 3, 2)\n    dec(1)\n    assert dec.cache_info() == (2, 2, 3, 2)\n\n\ndef test_cache_clear_resets_stats_and_contents():\n    dec = lru_cache(maxsize=3)(lambda x: x * 2)\n    dec(1)\n    dec(2)\n    dec(1)\n    assert dec.cache_info().hits == 1\n    dec.cache_clear()\n    info = dec.cache_info()\n    assert info == (0, 0, 3, 0)\n    assert dec(1) == 2\n    assert dec.cache_info() == (0, 1, 3, 1)\n\n\ndef test_ttl_cache_expensive_call_only_once_within_ttl(monkeypatch):\n    now = 0.0\n    def timer():\n        return now\n    calls = []\n    @ttl_cache(maxsize=128, ttl=0.1, timer=timer)\n    def func(x):\n        calls.append(x)\n        return x\n    assert func(1) == 1\n    now += 0.05\n    assert func(1) == 1\n    assert len(calls) == 1\n    now += 0.1\n    assert func(1) == 1\n    assert len(calls) == 2\n\n\ndef test_ttl_cache_with_none_maxsize_does_not_evict_by_size():\n    calls = []\n    @ttl_cache(maxsize=None, ttl=0.1, timer=time.monotonic)\n    def func(x):\n        calls.append(x)\n        return x\n    start = time.monotonic()\n    for i in range(10):\n        func(i)\n    elapsed = time.monotonic() - start\n    assert elapsed < 0.1\n    assert len(calls) == 10\n    time.sleep(0.11)\n    func(5)\n    assert len(calls) == 11\n\n\n\n\ndef test_cached_decorator_directly_accepts_cache_and_key():\n    store = {}\n    def key_func(*args, **kwargs):\n        return args[0]\n    cond = __import__('threading').Condition()\n    @cached(cache=store, key=key_func, condition=cond)\n    def f(x):\n        return x * 2\n    assert f(5) == 10\n    assert store[5] == 10\n    assert f(5) == 10\n\n\nif __name__ == \"__main__\":\n    pytest.fail(\"This file is intended to be used with pytest only.\")\n",
+  "generated_code": "import pytest\nimport time\nfrom datetime import datetime, timedelta\n\nfrom cachetools.func import (\n    fifo_cache,\n    lfu_cache,\n    lru_cache,\n    rr_cache,\n    ttl_cache,\n)\n\n\n@pytest.mark.parametrize(\n    \"decorator,cache_type,expected_maxsize\",\n    [\n        (fifo_cache, \"FIFOCache\", 128),\n        (lfu_cache, \"LFUCache\", 128),\n        (lru_cache, \"LRUCache\", 128),\n        (rr_cache, \"RRCache\", 128),\n        (ttl_cache, \"TTLCache\", 128),\n    ],\n)\ndef test_default_maxsize_and_type(decorator, cache_type, expected_maxsize):\n    wrapped = decorator()(lambda x: x)\n    params = wrapped.cache_parameters()\n    assert params[\"maxsize\"] == expected_maxsize\n    assert params[\"typed\"] is False\n    info = wrapped.cache_info()\n    assert info.hits == 0\n    assert info.misses == 0\n    assert info.maxsize == expected_maxsize\n    assert info.currsize == 0\n\n\ndef test_fifo_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        fifo_cache(maxsize=-1)\n\n\ndef test_lfu_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        lfu_cache(maxsize=-1)\n\n\ndef test_lru_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        lru_cache(maxsize=-1)\n\n\ndef test_rr_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        rr_cache(maxsize=-1)\n\n\ndef test_ttl_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        ttl_cache(maxsize=-1)\n\n\ndef test_rr_cache_custom_choice():\n    def my_choice(seq):\n        return seq[0]\n\n    wrapped = rr_cache(maxsize=2, choice=my_choice)(lambda x: x)\n    assert wrapped(1) == 1\n    assert wrapped(2) == 2\n    assert wrapped(1) == 1  # hit\n    assert wrapped(3) == 3  # miss, should evict one of the existing\n    info = wrapped.cache_info()\n    assert info.hits == 1\n    assert info.misses == 3\n\n\ndef test_fifo_cache_with_none_is_uncached():\n    wrapped = fifo_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_lfu_cache_with_none_is_uncached():\n    wrapped = lfu_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_lru_cache_with_none_is_uncached():\n    wrapped = lru_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_rr_cache_with_none_is_uncached():\n    wrapped = rr_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_ttl_cache_with_none_uses_unbound_ttl():\n    wrapped = ttl_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_ttl_cache_timer_callable_used():\n    class MockTimer:\n        def __init__(self):\n            self.value = 100\n\n        def __call__(self):\n            return self.value\n\n    timer = MockTimer()\n    wrapped = ttl_cache(maxsize=2, ttl=50, timer=timer)(lambda x: x)\n    assert wrapped(1) == 1  # miss, stored at time 100\n    assert wrapped(1) == 1  # hit (within ttl)\n    timer.value = 200  # advance time to 200\n    assert wrapped(1) == 1  # still within ttl? 200 - 100 = 100 > 50, should be expired\n    # Actually, after time advances to 200, the entry is expired, so this should be a miss\n    # But the function returns cached value only if not expired\n    # Let's check actual behavior by looking at cache_info\n    info = wrapped.cache_info()\n    # First call: miss\n    # Second call: hit (time 100 -> 100, diff 0 < 50)\n    # Third call: time advanced to 200, call with arg 1: since 200 - 100 = 100 >= 50, expired -> miss\n    # So we expect 2 misses, 1 hit\n    assert info.misses == 2\n    assert info.hits == 1\n\n\ndef test_ttl_cache_zero_ttl_immediate_expiry():\n    wrapped = ttl_cache(maxsize=2, ttl=0)(lambda x: x)\n    assert wrapped(1) == 1  # miss\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert info.hits == 0\n    assert wrapped(1) == 1  # again, ttl=0 means immediate expiry, so miss\n    info = wrapped.cache_info()\n    assert info.misses == 2\n    assert info.hits == 0\n\n\n@pytest.mark.parametrize(\n    \"decorator\",\n    [fifo_cache, lfu_cache, lru_cache, rr_cache, ttl_cache],\n)\ndef test_typed_argument_passed_through(decorator):\n    wrapped = decorator(maxsize=2, typed=True)(lambda x: x)\n    assert wrapped.cache_parameters()[\"typed\"] is True\n    wrapped2 = decorator(maxsize=2, typed=False)(lambda x: x)\n    assert wrapped2.cache_parameters()[\"typed\"] is False\n\n\ndef test_cache_key_uses_typedkey_when_typed_true():\n    wrapped = lru_cache(maxsize=2, typed=True)(lambda x: x)\n    assert wrapped(1) == 1\n    assert wrapped(1.0) == 1.0  # different due to typing\n    info = wrapped.cache_info()\n    assert info.misses == 2\n    assert info.hits == 0\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 2\n    assert info.hits == 1\n    assert wrapped(1.0) == 1.0\n    info = wrapped.cache_info()\n    assert info.misses == 2\n    assert info.hits == 2\n\n\ndef test_ttl_cache_datetime():\n    cached = ttl_cache(maxsize=2, ttl=timedelta(days=1), timer=datetime.now)(\n        lambda n: n\n    )\n    assert cached.cache_parameters() == {\"maxsize\": 2, \"typed\": False}\n    assert cached.cache_info() == (0, 0, 2, 0)\n    assert cached(1) == 1\n    assert cached.cache_info() == (0, 1, 2, 1)\n    assert cached(1) == 1\n    assert cached.cache_info() == (1, 1, 2, 1)\n    assert cached(1.0) == 1.0\n    assert cached.cache_info() == (2, 1, 2, 1)\n",
   "mutants": [
     {
       "id": 0,
@@ -305,13 +305,17 @@
     },
     {
       "round": 1,
-      "score": 96.36363636363636,
-      "killed": 53,
-      "survived": 2,
-      "accepted": true,
-      "note": "accepted: score improved (5 failing test(s) dropped) (after one repair)",
-      "tokens_used": 11406,
+      "score": 89.0909090909091,
+      "killed": 49,
+      "survived": 6,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 25570,
       "survivors": [
+        7,
+        12,
+        17,
+        22,
         27,
         28
       ],
@@ -319,33 +323,58 @@
     },
     {
       "round": 2,
-      "score": 96.36363636363636,
-      "killed": 53,
-      "survived": 2,
-      "accepted": false,
-      "note": "rejected: tests fail on the original code",
-      "tokens_used": 9331,
+      "score": 98.18181818181819,
+      "killed": 54,
+      "survived": 1,
+      "accepted": true,
+      "note": "accepted: score improved (1 repaired from real output) (after one repair)",
+      "tokens_used": 20988,
       "survivors": [
-        27,
         28
       ],
       "triaged": []
     },
     {
       "round": 3,
-      "score": 96.36363636363636,
-      "killed": 53,
-      "survived": 2,
+      "score": 98.18181818181819,
+      "killed": 54,
+      "survived": 1,
       "accepted": false,
       "note": "rejected: no score improvement",
-      "tokens_used": 7191,
+      "tokens_used": 16236,
       "survivors": [
-        27,
+        28
+      ],
+      "triaged": []
+    },
+    {
+      "round": 4,
+      "score": 98.18181818181819,
+      "killed": 54,
+      "survived": 1,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 17623,
+      "survivors": [
+        28
+      ],
+      "triaged": []
+    },
+    {
+      "round": 5,
+      "score": 98.18181818181819,
+      "killed": 54,
+      "survived": 1,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 19361,
+      "survivors": [
         28
       ],
       "triaged": []
     }
   ],
+  "explanations": {},
   "models": {
     "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
     "strong": "nvidia/nemotron-3-super-120b-a12b"
