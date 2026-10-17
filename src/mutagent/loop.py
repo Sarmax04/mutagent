@@ -45,7 +45,8 @@ SYSTEM_PROMPT = (
     "at that input (an input that looks like an edge case may be valid). Tests run "
     "only against the real code; never write a test that tries to reproduce a mutant. "
     "Never change module-level state of the code under test (global lists, dicts, "
-    "registries) unless the same test restores it. Keep any "
+    "registries) unless the same test restores it. Use pytest.raises for expected "
+    "exceptions. Comments are at most one short line; never reason in comments. Keep any "
     "reasoning short. Your reply must be ONE ```python block with the complete "
     "test file; do not explain, and do not think out loud in the reply."
 )

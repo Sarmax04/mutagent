@@ -48,7 +48,10 @@ def test_lookup_caches_formats_and_survives_errors():
             raise urllib.error.URLError("offline")
         return {
             "answer": "pluralize adds an s.",
-            "results": [{"url": "https://docs.example/p", "content": "pluralize('cat') == 'cats'"}],
+            "results": [
+                {"url": "https://inflection.readthedocs.io/p", "content": "pluralize('cat') == 'cats'"},
+                {"url": "https://shop.example/tips", "content": "how to pluralize product names"},
+            ],
         }
 
     docs = DocsLookup(package="inflection", search=search, log=quiet)
@@ -56,13 +59,14 @@ def test_lookup_caches_formats_and_survives_errors():
     assert "### pluralize" in text and "pluralize('cat') == 'cats'" in text and "broken" not in text
     docs.digest(["pluralize", "broken"])
     assert len(calls) == 2  # cached, including the failure
-    assert docs.history == [{"name": "pluralize", "query": calls[0], "urls": ["https://docs.example/p"]}]
+    assert docs.history == [{"name": "pluralize", "query": calls[0], "urls": ["https://inflection.readthedocs.io/p"]}]
+    assert "shop.example" not in text  # unrelated pages are dropped
 
 
 def test_docs_go_into_the_prompt_and_the_report(project):  # noqa: F811
     docs = DocsLookup(
         package="pricing",
-        search=lambda q: {"results": [{"url": "https://docs.example/d", "content": "apply_discount(100, 10) is 90"}]},
+        search=lambda q: {"results": [{"url": "https://pricing.example/d", "content": "apply_discount(100, 10) is 90"}]},
         log=quiet,
     )
     llm = RecordingLLM([fenced(STRONG_TESTS)])
@@ -70,7 +74,7 @@ def test_docs_go_into_the_prompt_and_the_report(project):  # noqa: F811
     prompt = [p for tier, p in llm.prompts if tier is Tier.STRONG][0]
     assert "Documentation found on the web (Tavily search)" in prompt
     assert "apply_discount(100, 10) is 90" in prompt
-    assert report.docs_lookups and report.docs_lookups[0]["urls"] == ["https://docs.example/d"]
+    assert report.docs_lookups and report.docs_lookups[0]["urls"] == ["https://pricing.example/d"]
 
 
 def test_docs_flag_without_key_is_a_clear_error(project, monkeypatch, capsys):  # noqa: F811
@@ -88,3 +92,15 @@ def test_public_names_drop_private_parts():
 
     names = ["_irregular", "Cache.__getitem__", "pluralize", "Cache.get", "_Hidden.method", "Cache"]
     assert public_names(names) == ["Cache", "pluralize", "Cache.get"]
+
+
+def test_docs_are_skipped_for_unpublished_modules(tmp_path, monkeypatch):
+    from mutagent.docs import from_env
+
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+    messages = []
+    assert from_env(tmp_path, "pricing", log=messages.append) is None
+    assert "not a published package" in messages[0]
+    assert from_env(tmp_path, "pricing", log=messages.append, package="pricing") is not None
+    (tmp_path / "VENDORED.md").write_text("From https://pypi.org/project/python-slugify/", encoding="utf-8")
+    assert from_env(tmp_path, "slugify.slugify", log=messages.append).package == "python-slugify"

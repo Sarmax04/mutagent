@@ -103,6 +103,14 @@ a { color: var(--focus); }
 .summary th { color: var(--muted); font-weight: 600; }
 .summary .win { font-weight: 700; }
 footer { margin-top: 40px; color: var(--muted); font-size: 14px; }
+.progress { margin: 10px 0 0; max-width: 640px; }
+.progress .track { position: relative; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.progress .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--caught); border-radius: 4px; transition: width 0.4s ease; }
+.progress .sweep { position: absolute; top: 0; bottom: 0; width: 30%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent); animation: sweep 1.4s linear infinite; }
+@keyframes sweep { from { left: -30%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .progress .sweep { animation: none; display: none; } }
+.progress .meta { margin: 6px 0 0; display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 14px; }
+.progress .now { margin: 2px 0 0; color: var(--muted); font: 12.5px/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hint { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
 #status { margin: 14px 0 0; min-height: 1.55em; }
 #status.error { color: var(--alive); font-weight: 600; }
@@ -247,6 +255,11 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
   <p class="blurb" id="blurb"></p>
   <p class="hint" id="hint" hidden></p>
   <p id="status" role="status" aria-live="polite"></p>
+  <div class="progress" id="progress" hidden>
+    <div class="track"><div class="fill" id="progress-fill"></div><div class="sweep"></div></div>
+    <div class="meta"><span id="progress-step">Starting</span><span id="progress-time">0:00</span></div>
+    <p class="now" id="progress-now"></p>
+  </div>
 
   <section class="stage" aria-label="Results">
     <div class="plate-wrap">
@@ -330,7 +343,7 @@ const KIND = {
   const: "constant changed",
 };
 
-const app = { local: { project: "", ready: false }, baseline: null, presets: [], status: null, preset: null, mode: "replay", token: 0, busy: false, total: 0, wells: [], recording: null, code: "" };
+const app = { timer: null, started: 0, local: { project: "", ready: false }, baseline: null, presets: [], status: null, preset: null, mode: "replay", token: 0, busy: false, total: 0, wells: [], recording: null, code: "" };
 
 async function api(path, options) {
   const response = await fetch(path, options);
@@ -512,6 +525,9 @@ function showLeft(report) {
   const attempts = (report && report.attempts) || [];
   const kept = attempts.find((a) => a.kept);
   $("#t-attempts").hidden = $("#f-attempts").hidden = attempts.length < 2;
+  if (attempts.length >= 2 && report && report.tokens_used) {
+    $("#f-tokens").textContent = report.tokens_used.toLocaleString() + " (all attempts)";
+  }
   $("#f-attempts").textContent = attempts.length < 2 ? "" :
     attempts.length + " runs, kept the best (" + (kept ? kept.final_score.toFixed(1) + "%" : "?") + ")";
 }
@@ -726,12 +742,45 @@ async function findModules() {
   setBusy(false);
 }
 
+function showProgress(on) {
+  $("#progress").hidden = !on;
+  if (!on) { clearInterval(app.timer); app.timer = null; return; }
+  app.started = Date.now();
+  $("#progress-fill").style.width = "4%";
+  $("#progress-step").textContent = "Scoring the existing tests (every planted bug is run once)";
+  $("#progress-now").textContent = "";
+  clearInterval(app.timer);
+  app.timer = setInterval(() => {
+    const s = Math.floor((Date.now() - app.started) / 1000);
+    $("#progress-time").textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + " elapsed";
+  }, 1000);
+}
+
+function updateProgress(run) {
+  const total = Math.max(1, run.rounds_requested || 1);
+  const done = Math.max(0, run.rounds.length - 1);
+  const lines = run.log || [];
+  const last = lines.length ? lines[lines.length - 1] : "";
+  const attempt = [...lines].reverse().find((l) => /^attempt \d+ of \d+$/.test(l));
+  let step;
+  if (!run.rounds.length) step = "Scoring the existing tests (every planted bug is run once)";
+  else if (done >= total || /^explained|^stopping|^all mutants/.test(last)) step = "Finishing up";
+  else if (/asking the model to fix/.test(last)) step = "Round " + (done + 1) + ": repairing wrong expectations";
+  else if (/dropped|could not load|failed on the original/.test(last)) step = "Round " + (done + 1) + ": checking the new tests";
+  else step = "Round " + (done + 1) + " of " + total + ": Nemotron is writing tests, then every planted bug is run";
+  if (attempt) step = attempt.charAt(0).toUpperCase() + attempt.slice(1) + " · " + step;
+  $("#progress-step").textContent = step;
+  $("#progress-fill").style.width = Math.max(4, Math.min(100, (done / total) * 100)) + "%";
+  $("#progress-now").textContent = last;
+}
+
 async function startLive() {
   const token = ++app.token;
   setBusy(true);
   resetResults();
   const own = app.mode === "local";
-  say(own ? "Scoring your project's own tests." : "Scoring the library's own tests.");
+  say(own ? "Working on your project. This takes a few minutes." : "Live run started. This takes a few minutes.");
+  showProgress(true);
   try {
     const started = own
       ? await api("/api/local/runs", {
@@ -760,6 +809,7 @@ async function startLive() {
         renderRounds(run.rounds, last);
       }
       showLog(run.log);
+      updateProgress(run);
       if (run.status === "error") { say(run.error || "The run stopped.", true); break; }
       if (run.status === "done") {
         const rounds = (run.report && run.report.rounds && run.report.rounds.length) ? run.report.rounds : run.rounds;
@@ -772,14 +822,13 @@ async function startLive() {
         say("Done. The score went from " + rounds[0].score.toFixed(1) + "% to " + rounds[rounds.length - 1].score.toFixed(1) + "%.");
         break;
       }
-      say(run.rounds.length <= 1
-        ? "Asking the model for tests."
-        : "Round " + (run.rounds.length - 1) + " of " + run.rounds_requested + " is done. Waiting for the model.");
+      say(own ? "Working on your project. This takes a few minutes." : "Live run in progress. This takes a few minutes.");
       await sleep(1000);
     }
   } catch (error) {
     if (token === app.token) say(error.message, true);
   }
+  showProgress(false);
   if (token === app.token) setBusy(false);
   refreshStatus();
 }

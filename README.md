@@ -6,6 +6,8 @@ Built for the **Nebius x NVIDIA Global AI Hackathon** (track: *Coding and Agenti
 
 License: MIT (see `LICENSE`).
 
+![How mutagent works: plant bugs, run them, Nemotron writes tests, keep only tests that raise the score](docs/mutagent-architecture.png)
+
 **Live demo:** https://mutagent.onrender.com (free hosting: after 15 idle minutes the first visit takes about a minute to wake up).
 
 ## The problem

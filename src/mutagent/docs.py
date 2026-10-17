@@ -76,8 +76,8 @@ def public_names(names: Sequence[str]) -> list[str]:
     return out
 
 
-def project_name(project: Path, module: str) -> str:
-    """The name to search the web for: the distribution name if the project declares one."""
+def declared_name(project: Path) -> str | None:
+    """The published package name the project declares, or None (a local module has no docs)."""
     project = Path(project)
     for meta in ("pyproject.toml", "setup.cfg"):
         path = project / meta
@@ -90,7 +90,22 @@ def project_name(project: Path, module: str) -> str:
         match = re.search(r"pypi\.org/project/([A-Za-z0-9_.\-]+)", vendored.read_text(encoding="utf-8", errors="replace"))
         if match:
             return match.group(1)
-    return module.split(".")[0]
+    return None
+
+
+def project_name(project: Path, module: str) -> str:
+    """The name to search the web for: the declared package name, else the top-level module."""
+    return declared_name(project) or module.split(".")[0]
+
+
+def _variants(package: str) -> list[str]:
+    """Spellings of a package name to look for in a search result (python-slugify -> slugify)."""
+    name = package.lower()
+    out = {name, name.replace("-", "_"), name.replace("_", "-")}
+    for prefix in ("python-", "py-", "python_"):
+        if name.startswith(prefix):
+            out.add(name[len(prefix):])
+    return sorted(v for v in out if len(v) >= 3)
 
 
 def tavily_search(query: str, api_key: str, *, max_results: int = 4, timeout: float = 20.0) -> dict:
@@ -141,6 +156,7 @@ class DocsLookup:
                 self.log(f"docs: lookup for {name} failed ({exc}); continuing without it")
                 self.cache[name] = ""
                 continue
+            data = _relevant(data, self.package)
             self.cache[name] = _format(name, data)
             urls = [r.get("url", "") for r in data.get("results", [])]
             self.history.append({"name": name, "query": query, "urls": urls})
@@ -148,6 +164,20 @@ class DocsLookup:
         parts = [self.cache[n] for n in names if self.cache.get(n)]
         text = "\n\n".join(parts)
         return text[:MAX_DIGEST_CHARS]
+
+
+def _relevant(data: dict, package: str) -> dict:
+    """Keep only results that are about the package (its name in the URL or the text).
+
+    Generic pages (a payments API, a tutorial about discounts) would only mislead the model.
+    """
+    variants = _variants(package)
+    kept = [
+        r for r in data.get("results", [])
+        if any(v in (r.get("url", "") + " " + (r.get("content") or "")).lower() for v in variants)
+    ]
+    answer = data.get("answer") if kept else ""
+    return {**data, "results": kept, "answer": answer}
 
 
 def _format(name: str, data: dict) -> str:
@@ -162,10 +192,22 @@ def _format(name: str, data: dict) -> str:
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
-def from_env(project: Path, module: str, log: Callable[[str], None] = print, package: str | None = None) -> DocsLookup:
-    """A lookup using ``TAVILY_API_KEY``; raises DocsUnavailable when it is not set."""
+def from_env(
+    project: Path, module: str, log: Callable[[str], None] = print, package: str | None = None
+) -> DocsLookup | None:
+    """A lookup using ``TAVILY_API_KEY``; raises DocsUnavailable when it is not set.
+
+    Returns None (no lookups) when the project declares no published package name and
+    none is given: a local module has no documentation on the web to find.
+    """
     key = os.environ.get("TAVILY_API_KEY", "").strip()
     if not key:
         raise DocsUnavailable("--docs needs TAVILY_API_KEY in your environment or .env (get a key at tavily.com)")
-    name = package or project_name(project, module)
+    name = package or declared_name(project)
+    if not name:
+        log(
+            f"docs: skipped, {module} is not a published package (no name in pyproject.toml, setup.cfg "
+            "or VENDORED.md). Use --docs-name to search anyway."
+        )
+        return None
     return DocsLookup(package=name, search=lambda q: tavily_search(q, key), log=log)
