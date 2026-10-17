@@ -62,12 +62,12 @@ def test_fix_updates_the_table_counts(tmp_path, monkeypatch):
         monkeypatch.setenv(k, v)
     monkeypatch.chdir(tmp_path)
 
-    def fake_run_loop(project, target, llm, **kw):
+    def fake_run_best_of(attempts, make_llm, project, target, **kw):
         rep = LoopReport(target=target, mutant_count=2, initial_score=50.0, final_score=100.0)
         rep.rounds.append(RoundResult(1, 100.0, 2, 0, True, "accepted", 5, [], []))
         return rep
 
-    monkeypatch.setattr(cli, "run_loop", fake_run_loop)
+    monkeypatch.setattr(cli, "run_best_of", fake_run_best_of)
     monkeypatch.setattr(cli, "NebiusChat", lambda settings, budget: object())
     code = cli.main(["scan", "--project", str(tmp_path), "--targets", "pkg/calc.py",
                      "--fix", "--min-score", "90", "--report-dir", str(tmp_path / "r")])

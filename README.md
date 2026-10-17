@@ -59,6 +59,9 @@ mutagent score --project examples/demo_project --target pricing.py
 # 2. run the agent (uses Token Factory, up to --rounds rounds); --explain lets the small FAST model explain the bugs that survive
 mutagent run --project examples/demo_project --target pricing.py --rounds 6 --explain
 
+# 2b. model runs vary a lot; run the whole loop up to 3 times and keep the best (3x the tokens)
+mutagent run --project examples/demo_project --target pricing.py --explain --attempts 3
+
 # 3. the comparison baseline: same loop and model, no bug feedback
 mutagent baseline --project examples/demo_project --target pricing.py
 ```
@@ -129,8 +132,8 @@ jobs:
   gate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with: { python-version: "3.13" }
       - run: pip install pytest "git+https://github.com/Sarmax04/mutagent"
       - run: mutagent score --project . --target src/yourpkg/module.py --min-score 85

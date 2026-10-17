@@ -81,6 +81,7 @@ class LoopReport:
     mode: str = "guided"  # guided (survivor feedback loop) | baseline (same loop, no mutant feedback)
     rounds: list[RoundResult] = field(default_factory=list)
     explanations: dict[str, str] = field(default_factory=dict)  # surviving mutant id -> one line
+    attempts: list[dict] = field(default_factory=list)  # best-of-N: every attempt's score and tokens
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -809,3 +810,51 @@ def _run(
         out.write_text(current, encoding="utf-8")
         report.generated_path = generated_rel
     return report
+
+
+def run_best_of(
+    attempts: int,
+    make_llm: Callable[[], ChatModel],
+    project: Path,
+    target: str,
+    *,
+    write_back: bool = True,
+    generated_rel: str = GENERATED_REL,
+    log: Callable[[str], None] = print,
+    **kwargs,
+) -> LoopReport:
+    """Run the whole loop up to ``attempts`` times from the same start and keep the best.
+
+    Model runs vary a lot from one run to the next; best-of-N trades tokens for a more
+    reliable result. Each attempt gets a fresh model client (and so its own token
+    budget). The returned report is the best attempt (highest score, then fewest
+    tokens); its ``tokens_used`` is the total over all attempts, and ``attempts`` lists
+    each one. It stops early when an attempt catches every planted bug.
+    """
+    attempts = max(1, attempts)
+    if attempts == 1:
+        return run_loop(project, target, make_llm(), write_back=write_back,
+                        generated_rel=generated_rel, log=log, **kwargs)
+    reports: list[LoopReport] = []
+    for number in range(1, attempts + 1):
+        log(f"attempt {number} of {attempts}")
+        report = run_loop(project, target, make_llm(), write_back=False,
+                          generated_rel=generated_rel, log=log, **kwargs)
+        reports.append(report)
+        log(f"attempt {number}: {report.initial_score:.1f}% -> {report.final_score:.1f}% using {report.tokens_used} tokens")
+        if report.final_score >= 100.0:
+            break
+    best_index = max(range(len(reports)), key=lambda i: (reports[i].final_score, -reports[i].tokens_used))
+    best = reports[best_index]
+    best.attempts = [
+        {"attempt": i + 1, "final_score": r.final_score, "tokens_used": r.tokens_used, "kept": i == best_index}
+        for i, r in enumerate(reports)
+    ]
+    best.tokens_used = sum(r.tokens_used for r in reports)
+    log(f"kept attempt {best_index + 1} of {len(reports)} ({best.final_score:.1f}%)")
+    if write_back and best.generated_code:
+        out = Path(project) / generated_rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(best.generated_code, encoding="utf-8")
+        best.generated_path = generated_rel
+    return best

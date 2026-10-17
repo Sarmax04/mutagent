@@ -475,3 +475,30 @@ def test_a_test_that_breaks_loading_is_dropped_and_the_rest_kept(project):
     assert report.rounds[1].accepted
     saved = (project / GENERATED_REL).read_text()
     assert "test_bad_params" not in saved and "test_discount_values" in saved
+
+
+def test_best_of_keeps_the_best_attempt_and_counts_all_tokens(project):
+    from mutagent.loop import run_best_of
+
+    weak = "from pricing import apply_discount\n\n\ndef test_one():\n    assert apply_discount(100, 10) == 90\n"
+    replies = iter([fenced(weak), fenced(STRONG_TESTS)])
+    made = []
+
+    def make_llm():
+        llm = FakeLLM([next(replies)])
+        made.append(llm)
+        return llm
+
+    report = run_best_of(2, make_llm, project, "pricing.py", max_rounds=1, log=quiet)
+    assert len(made) == 2 and len(report.attempts) == 2
+    assert report.attempts[1]["kept"] and not report.attempts[0]["kept"]
+    assert report.final_score == max(a["final_score"] for a in report.attempts)
+    assert report.tokens_used == sum(a["tokens_used"] for a in report.attempts)
+    assert "test_discount_values" in (project / GENERATED_REL).read_text()
+
+
+def test_best_of_one_is_a_plain_run(project):
+    from mutagent.loop import run_best_of
+
+    report = run_best_of(1, lambda: FakeLLM([fenced(STRONG_TESTS)]), project, "pricing.py", max_rounds=1, log=quiet)
+    assert report.attempts == [] and report.final_score > report.initial_score

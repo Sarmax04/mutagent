@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .llm import ConfigError, NebiusChat, api_error_message, Settings, TokenBudget, load_dotenv
-from .loop import BaselineFailing, measure, run_loop
+from .loop import BaselineFailing, measure, run_best_of
 from .mutation import counts, generate_mutants, mutation_score
 
 
@@ -55,6 +55,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--fix", action="store_true", help="run the agent on each module below --min-score (needs an API key)")
     p.add_argument("--rounds", type=int, default=6)
     p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
+    p.add_argument("--attempts", type=int, default=1, help="run the agent up to N times per module and keep the best (N x the tokens)")
     p.add_argument("--budget", type=int, help="token cap per module; overrides NEBIUS_TOKEN_BUDGET")
     p.add_argument("--report-dir", default="mutagent_reports")
 
@@ -71,6 +72,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--explain", action="store_true", help="use the FAST model to explain each surviving bug in one line")
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--report", default="mutagent_report.json")
+    p.add_argument("--attempts", type=int, default=1, help="run the whole loop up to N times and keep the best result (N x the tokens)")
     p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
     p.add_argument("--min-score", type=float, help="exit with code 4 if the final score is below this (for CI)")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
@@ -85,6 +87,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--budget", type=int, help="token cap; overrides NEBIUS_TOKEN_BUDGET")
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--report", default="mutagent_baseline_report.json")
+    p.add_argument("--attempts", type=int, default=1, help="run the whole loop up to N times and keep the best result (N x the tokens)")
     p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
 
@@ -127,9 +130,12 @@ def _scan(args: argparse.Namespace) -> int:
                 settings = Settings.from_env()
                 for row in weak:
                     print(f"\nimproving {row.target} ({row.score:.1f}%) ...")
-                    llm = NebiusChat(settings, TokenBudget(args.budget or settings.token_budget))
-                    report = run_loop(
-                        project, row.target, llm, max_rounds=args.rounds, patience=args.patience,
+                    def make_llm() -> NebiusChat:
+                        return NebiusChat(settings, TokenBudget(args.budget or settings.token_budget))
+
+                    report = run_best_of(
+                        args.attempts, make_llm, project, row.target,
+                        max_rounds=args.rounds, patience=args.patience,
                         test_timeout=args.test_timeout, triage=False, explain=True,
                         write_back=True, tests=args.tests, generated_rel=_generated_name(row.target),
                     )
@@ -210,12 +216,14 @@ def main(argv: list[str] | None = None) -> int:
 
         load_dotenv(Path(".env"))
         settings = Settings.from_env()
-        budget = TokenBudget(args.budget or settings.token_budget)
-        llm = NebiusChat(settings, budget)
-        report = run_loop(
+        def make_llm() -> NebiusChat:
+            return NebiusChat(settings, TokenBudget(args.budget or settings.token_budget))
+
+        report = run_best_of(
+            args.attempts,
+            make_llm,
             project,
             args.target,
-            llm,
             max_rounds=args.rounds,
             patience=args.patience,
             test_timeout=args.test_timeout,

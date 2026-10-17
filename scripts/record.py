@@ -43,6 +43,7 @@ def main() -> int:
     parser.add_argument("--triage", action="store_true", help="let the FAST model set aside likely-unkillable bugs")
     parser.add_argument("--no-triage", action="store_true", help=argparse.SUPPRESS)  # old flag; triage is off by default
     parser.add_argument("--skip-baseline", action="store_true")
+    parser.add_argument("--attempts", type=int, default=1, help="best of N for both the agent and the baseline (N x the tokens)")
     args = parser.parse_args()
 
     known = {p.id: p for p in PRESETS}
@@ -59,6 +60,7 @@ def main() -> int:
         common = ["--project", project, "--target", preset.target, "--no-write-back"]
         if preset.tests:
             common += ["--tests", *preset.tests]
+        common += ["--attempts", str(args.attempts)]
         guided = base + ["run", *common, "--rounds", str(args.rounds), "--report", f"replays/{preset.id}.json"]
         if args.triage and not args.no_triage:
             guided.append("--triage")
