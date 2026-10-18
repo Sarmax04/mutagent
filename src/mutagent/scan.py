@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
+from .linecov import project_coverage
 from .loop import BaselineFailing, measure
 from .mutation import counts, generate_mutants, mutation_score
 
@@ -21,6 +22,7 @@ class ScanRow:
     killed: int = 0
     survived: int = 0
     note: str = ""
+    coverage: float | None = None  # line coverage of the module, next to its mutation score
 
 
 def discover_targets(project: Path) -> list[str]:
@@ -61,17 +63,19 @@ def scan(
             rows.append(ScanRow(target, 0, None, note="the project's own tests fail"))
             continue
         killed, survived = counts(statuses)
-        rows.append(ScanRow(target, len(mutants), mutation_score(statuses), killed, survived))
+        coverage = project_coverage(Path(project), target, tests)
+        rows.append(ScanRow(target, len(mutants), mutation_score(statuses), killed, survived, coverage=coverage))
     return rows
 
 
 def format_table(rows: Sequence[ScanRow]) -> str:
     width = max([len(r.target) for r in rows] + [6])
-    lines = [f"{'module':<{width}}  mutants  score    survived"]
+    lines = [f"{'module':<{width}}  mutants    score  coverage  survived"]
     for r in rows:
         score = "-" if r.score is None else f"{r.score:5.1f}%"
+        cover = "-" if r.coverage is None else f"{r.coverage:5.1f}%"
         extra = f"  ({r.note})" if r.note else ""
-        lines.append(f"{r.target:<{width}}  {r.mutants:>7}  {score:>7}  {r.survived:>8}{extra}")
+        lines.append(f"{r.target:<{width}}  {r.mutants:>7}  {score:>7}  {cover:>8}  {r.survived:>8}{extra}")
     scored = [r.score for r in rows if r.score is not None]
     if scored:
         lines.append(f"{'lowest':<{width}}  {'':>7}  {min(scored):5.1f}%")

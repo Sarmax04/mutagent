@@ -13,6 +13,12 @@ def render_markdown(data: dict) -> str:
         f"- Score: **{data['initial_score']:.1f}% -> {data['final_score']:.1f}%**",
         f"- Tokens used: {data['tokens_used']}",
     ]
+    c0, c1 = data.get("initial_coverage"), data.get("final_coverage")
+    if isinstance(c0, (int, float)) and isinstance(c1, (int, float)):
+        lines.append(
+            f"- Line coverage: {c0:.1f}% -> {c1:.1f}% "
+            "(lines the tests run; the score above says whether they would notice a bug there)"
+        )
     models = data.get("models")
     if models:
         lines.append(f"- Models: strong `{models.get('strong')}`, fast `{models.get('fast')}`")

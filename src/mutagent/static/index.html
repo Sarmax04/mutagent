@@ -276,9 +276,11 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
         <dt>Started at</dt><dd id="f-start">&ndash;</dd>
         <dt>Caught</dt><dd id="f-caught">&ndash;</dd>
         <dt>Model tokens</dt><dd id="f-tokens">&ndash;</dd>
+        <dt id="t-cover" hidden>Line coverage</dt><dd id="f-cover" hidden></dd>
         <dt id="t-baseline" hidden>Same model, no bug feedback</dt><dd id="f-baseline" hidden></dd>
         <dt id="t-attempts" hidden>Attempts</dt><dd id="f-attempts" hidden></dd>
       </dl>
+      <p class="hint" id="cover-note" hidden></p>
     </div>
   </section>
 
@@ -301,7 +303,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
     <p class="hint">Real recorded runs. The baseline is the same loop and model, but it is never told which bugs survived.</p>
     <div class="summary-wrap">
       <table class="summary">
-        <thead><tr><th>Library</th><th>Planted bugs</th><th>Before</th><th>Baseline</th><th>Agent</th><th>Tokens (agent)</th></tr></thead>
+        <thead><tr><th>Library</th><th>Planted bugs</th><th>Before</th><th>Baseline</th><th>Agent</th><th>Line coverage</th><th>Tokens (agent)</th></tr></thead>
         <tbody id="summary-body"></tbody>
       </table>
     </div>
@@ -414,12 +416,33 @@ function paintRound(rounds, index) {
   $("#f-caught").textContent = round.killed + " of " + app.total;
   const tokens = rounds.slice(0, index + 1).reduce((sum, r) => sum + (r.tokens_used || 0), 0);
   $("#f-tokens").textContent = tokens > 0 ? tokens.toLocaleString() : "none yet";
+  if (app.recording) showCoverage(app.recording, index === rounds.length - 1);
   const one = app.recording && app.baseline && index === rounds.length - 1;
   $("#t-baseline").hidden = !one;
   $("#f-baseline").hidden = !one;
   if (one) {
     const o = app.baseline;
     $("#f-baseline").textContent = o.final_score.toFixed(1) + "% (" + (o.tokens_used || 0).toLocaleString() + " tokens)";
+  }
+}
+
+/* Line coverage counts the lines the tests run. The score above counts the bugs they would catch. */
+function showCoverage(report, final) {
+  const a = report && report.initial_coverage;
+  const b = report && report.final_coverage;
+  const has = typeof a === "number";
+  ["#t-cover", "#f-cover"].forEach((id) => { $(id).hidden = !has; });
+  const note = $("#cover-note");
+  note.hidden = true;
+  if (!has) return;
+  const done = final && typeof b === "number";
+  $("#f-cover").textContent = done ? a.toFixed(1) + "% \u2192 " + b.toFixed(1) + "%" : a.toFixed(1) + "%";
+  const cover = done ? b : a;
+  const caught = done ? report.final_score : report.initial_score;
+  if (typeof caught === "number" && cover - caught >= 3) {
+    note.textContent = "The tests run " + cover.toFixed(1) + "% of this module's lines, but they catch only " +
+      caught.toFixed(1) + "% of the planted bugs. Coverage alone does not show that.";
+    note.hidden = false;
   }
 }
 
@@ -565,6 +588,7 @@ async function loadSummary() {
       const baseWins = typeof r.baseline === "number" && r.baseline > r.agent;
       [[r.title, ""], [String(r.mutants), ""], [pct(r.before), ""],
        [pct(r.baseline), baseWins ? "win" : ""], [pct(r.agent), agentWins ? "win" : ""],
+       [typeof r.cover_before === "number" ? pct(r.cover_before) + " \u2192 " + pct(r.cover_after) : "\u2013", ""],
        [r.tokens ? r.tokens.toLocaleString() : "\u2013", ""]].forEach(([text, cls]) => {
         const td = document.createElement("td");
         td.textContent = text;
@@ -585,6 +609,7 @@ function resetResults() {
   $("#f-tokens").textContent = "–";
   $("#t-baseline").hidden = true;
   $("#f-baseline").hidden = true;
+  showCoverage(null, false);
   $("#wells").setAttribute("aria-label", "No run loaded yet");
   $("#rounds-list").replaceChildren(el("li", "empty", "Nothing has run yet."));
   $("#rounds-list").firstElementChild.style.padding = "12px 0";
@@ -818,6 +843,7 @@ async function startLive() {
           paintRound(rounds, rounds.length - 1);
           renderRounds(rounds, rounds.length - 1);
           showCode(run.report);
+          showCoverage(run.report, true);
         }
         say("Done. The score went from " + rounds[0].score.toFixed(1) + "% to " + rounds[rounds.length - 1].score.toFixed(1) + "%.");
         break;

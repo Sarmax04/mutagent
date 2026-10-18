@@ -266,7 +266,8 @@ def test_summary_lists_recorded_runs(tiny):
     (replays / "tiny-baseline.json").write_text(json.dumps({"final_score": 66.7}))
     rows = make_client().get("/api/summary").json()
     assert rows == [{"id": "tiny", "title": "Tiny", "mutants": 3, "before": 33.3,
-                     "agent": 100.0, "baseline": 66.7, "tokens": 500}]
+                     "agent": 100.0, "baseline": 66.7, "tokens": 500,
+                     "cover_before": None, "cover_after": None}]
 
 
 def test_local_run_with_attempts_and_docs_rules(own_project, monkeypatch):

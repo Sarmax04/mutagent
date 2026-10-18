@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from .llm import BudgetExceeded, ChatModel, Tier, strip_reasoning
+from .linecov import measure_coverage
 from .mutation import (
     Mutant,
     copy_project,
@@ -83,6 +84,8 @@ class LoopReport:
     rounds: list[RoundResult] = field(default_factory=list)
     explanations: dict[str, str] = field(default_factory=dict)  # surviving mutant id -> one line
     attempts: list[dict] = field(default_factory=list)  # best-of-N: every attempt's score and tokens
+    initial_coverage: float | None = None  # line coverage of the target before / after (None: not measurable)
+    final_coverage: float | None = None
     docs_lookups: list[dict] = field(default_factory=list)  # --docs: what was looked up, and where
 
     def to_dict(self) -> dict:
@@ -630,6 +633,8 @@ def _run(
         mutants=[{"id": m.id, "line": m.lineno, "kind": m.kind, "diff": m.diff} for m in mutants],
         mode="guided" if guided else "baseline",
     )
+    start_code = current
+    report.initial_coverage = measure_coverage(work, target, selection(work, tests, generated_rel))
 
     def alive() -> list[int]:
         return [m.id for m in mutants if statuses[m.id] == "survived"]
@@ -817,6 +822,11 @@ def _run(
 
     report.final_score = best
     report.generated_code = current
+    if current == start_code:
+        report.final_coverage = report.initial_coverage
+    else:
+        restore()
+        report.final_coverage = measure_coverage(work, target, selection(work, tests, generated_rel))
     if docs is not None:
         report.docs_lookups = list(docs.history)
     if explain and alive():

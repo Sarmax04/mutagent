@@ -14,6 +14,17 @@ License: MIT (see `LICENSE`).
 
 LLM-generated tests often pass without testing anything. Coverage and "number of tests" are easy to game. Mutation testing asks the real question: if I plant a small bug in the code, does a test fail?
 
+Line coverage in particular says little about that. It counts the lines the tests *run*, not the bugs they would *notice*. mutagent measures both (coverage with coverage.py, before and after the agent) so the gap is visible. These are the tests that ship with the libraries I use in the demo, measured with `mutagent score`:
+
+| Module | Line coverage | Planted bugs caught |
+|---|---|---|
+| cachetools `func.py` | 100.0% | 89.1% |
+| inflection | 98.8% | 88.9% |
+| python-slugify `slugify.py` | 75.6% | 54.2% |
+| Toy pricing module | 64.7% | 37.8% |
+
+Even with 100% line coverage, 1 planted bug in 9 slipped through. The page and the Markdown report show coverage next to the score, and `scan` has a coverage column. Only line coverage is measured, not branches.
+
 ## How it works
 
 ```
@@ -226,6 +237,7 @@ The agent executes model-written test code with pytest, so treat it as untrusted
 
 - The built-in mutation engine is intentionally small (comparison, arithmetic, boolean, negation and integer-constant mutations). It is isolated in `mutation.py` and can be replaced by mutmut or Stryker.
 - Some surviving mutants are *equivalent* (they change no behaviour), so 100% is not always reachable.
+- Coverage is line coverage of the one module, measured with coverage.py. If coverage.py fails, the figure is left out and the run continues.
 - Module paths follow a flat or `src/` layout; the project's own test dependencies must be installed in the environment that runs `mutagent`.
 
 ## Feedback

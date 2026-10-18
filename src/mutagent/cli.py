@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .docs import DocsUnavailable
 from .llm import ConfigError, NebiusChat, api_error_message, Settings, TokenBudget, load_dotenv
+from .linecov import project_coverage
 from .loop import BaselineFailing, measure, run_best_of
 from .mutation import counts, generate_mutants, mutation_score
 
@@ -227,6 +228,9 @@ def main(argv: list[str] | None = None) -> int:
             mutants, statuses = measure(project, args.target, args.test_timeout, args.tests)
             killed, survived = counts(statuses)
             print(f"mutation score: {mutation_score(statuses):.1f}% ({killed} killed / {survived} survived)")
+            covered = project_coverage(project, args.target, args.tests)
+            if covered is not None:
+                print(f"line coverage:  {covered:.1f}% (lines the tests run; the mutation score says whether they would notice a bug there)")
             for m in mutants:
                 if statuses[m.id] == "survived":
                     print(f"  survived #{m.id} line {m.lineno} {m.kind}")
@@ -273,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
         f"\nscore {report.initial_score:.1f}% -> {report.final_score:.1f}% "
         f"using {report.tokens_used} tokens; report: {args.report}"
     )
+    if report.initial_coverage is not None and report.final_coverage is not None:
+        print(f"line coverage {report.initial_coverage:.1f}% -> {report.final_coverage:.1f}%")
     return _gate(report.final_score, getattr(args, "min_score", None))
 
 

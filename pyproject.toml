@@ -9,7 +9,7 @@ description = "An agent that writes tests and is graded by mutation score, power
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-dependencies = ["openai>=1.40"]
+dependencies = ["openai>=1.40", "coverage>=7"]
 
 [project.optional-dependencies]
 web = ["fastapi>=0.110", "uvicorn>=0.29"]

@@ -369,6 +369,8 @@ def create_app(
                     "agent": agent.get("final_score"),
                     "baseline": base.get("final_score") if base else None,
                     "tokens": agent.get("tokens_used"),
+                    "cover_before": agent.get("initial_coverage"),
+                    "cover_after": agent.get("final_coverage"),
                 }
             )
         return rows
