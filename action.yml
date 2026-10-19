@@ -71,7 +71,7 @@ runs:
         mutagent "${args[@]}" | tee mutagent_scan.txt
         code=${PIPESTATUS[0]}
         set -e
-        lowest=$(grep -E '^lowest' mutagent_scan.txt | grep -oE '[0-9]+\.[0-9]+' | head -n 1)
+        lowest=$(grep -E '^lowest' mutagent_scan.txt | grep -oE '[0-9]+\.[0-9]+' | head -n 1 || true)
         echo "lowest=${lowest}" >> "$GITHUB_OUTPUT"
         body="${RUNNER_TEMP:-/tmp}/mutagent_comment.md"
         {
