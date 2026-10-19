@@ -13,6 +13,9 @@ def render_markdown(data: dict) -> str:
         f"- Score: **{data['initial_score']:.1f}% -> {data['final_score']:.1f}%**",
         f"- Tokens used: {data['tokens_used']}",
     ]
+    trimmed = data.get("trimmed") or {}
+    if trimmed.get("after") is not None and trimmed.get("after") < trimmed.get("before", 0):
+        lines.append(f"- New tests: {trimmed['after']} (trimmed from {trimmed['before']}; the others caught nothing extra)")
     c0, c1 = data.get("initial_coverage"), data.get("final_coverage")
     if isinstance(c0, (int, float)) and isinstance(c1, (int, float)):
         lines.append(

@@ -132,3 +132,13 @@ def test_cli_explains_missing_sandbox_setup(project, monkeypatch, capsys):
     monkeypatch.setattr("mutagent.sandbox.unavailable_reason", lambda: "NEBIUS_PROJECT_ID is not set.")
     assert main(["sandbox-check"]) == 3
     assert "NEBIUS_PROJECT_ID" in capsys.readouterr().err
+
+
+def test_outputs_match_the_local_runs(project, runner):
+    from mutagent.mutation import mutant_outputs
+
+    source = (project / "pricing.py").read_text(encoding="utf-8")
+    mutants = generate_mutants(source)[:6]
+    local = mutant_outputs(project, "pricing.py", mutants, source, 30, [])
+    remote = runner.outputs(project, "pricing.py", mutants, source, 30, [])
+    assert {k: (v.passed, v.returncode) for k, v in remote.items()} == {k: (v.passed, v.returncode) for k, v in local.items()}

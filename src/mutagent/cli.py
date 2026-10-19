@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from .changes import DiffError, changed_lines
 from .docs import DocsUnavailable
 from .llm import ConfigError, NebiusChat, api_error_message, Settings, TokenBudget, load_dotenv
 from .linecov import project_coverage
@@ -38,6 +39,13 @@ def _parser() -> argparse.ArgumentParser:
         p.add_argument("--sandbox-packages", nargs="+", default=[], metavar="PKG", help="extra pip packages the project's tests need inside the sandbox")
         p.add_argument("--sandbox-workers", type=int, help="mutants tested in parallel (default 16, at most 40)")
 
+    def diff_opt(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--diff",
+            metavar="REF",
+            help="plant bugs only on lines changed since REF (git), for example origin/main; fast pull-request checks",
+        )
+
     def tests_opt(p: argparse.ArgumentParser) -> None:
         p.add_argument(
             "--tests",
@@ -51,8 +59,10 @@ def _parser() -> argparse.ArgumentParser:
     common(p)
     tests_opt(p)
     sandbox_opt(p)
+    diff_opt(p)
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--min-score", type=float, help="exit with code 4 if the score is below this (for CI)")
+    p.add_argument("--badge", metavar="SVG", help="also write a score badge (SVG) to this file")
 
     p = sub.add_parser(
         "scan",
@@ -64,8 +74,10 @@ def _parser() -> argparse.ArgumentParser:
     group.add_argument("--discover", action="store_true", help="find the modules automatically")
     tests_opt(p)
     sandbox_opt(p)
+    diff_opt(p)
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--min-score", type=float, help="exit with code 4 if any module is below this (after --fix)")
+    p.add_argument("--badge", metavar="SVG", help="also write a badge (SVG) with the lowest module score")
     p.add_argument("--fix", action="store_true", help="run the agent on each module below --min-score (needs an API key)")
     p.add_argument("--rounds", type=int, default=6)
     p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
@@ -74,6 +86,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--report-dir", default="mutagent_reports")
     p.add_argument("--docs", action="store_true", help="look up the library's documentation with Tavily (needs TAVILY_API_KEY)")
     p.add_argument("--docs-name", help="name to search the docs for (default: the project's package name)")
+    p.add_argument("--minimize", action="store_true", help="afterwards, drop new tests that catch nothing the others miss (costs test runs, no tokens)")
 
     p = sub.add_parser("report", help="turn a saved JSON report into a Markdown report")
     p.add_argument("report_file", help="JSON report written by `run` or `baseline`")
@@ -83,6 +96,7 @@ def _parser() -> argparse.ArgumentParser:
     common(p)
     tests_opt(p)
     sandbox_opt(p)
+    diff_opt(p)
     p.add_argument("--rounds", type=int, default=4)
     p.add_argument("--budget", type=int, help="token cap; overrides NEBIUS_TOKEN_BUDGET")
     p.add_argument("--triage", action="store_true", help="use the FAST model to skip likely-equivalent mutants")
@@ -95,6 +109,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
     p.add_argument("--min-score", type=float, help="exit with code 4 if the final score is below this (for CI)")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
+    p.add_argument("--minimize", action="store_true", help="afterwards, drop new tests that catch nothing the others miss (costs test runs, no tokens)")
 
     p = sub.add_parser(
         "baseline",
@@ -103,6 +118,7 @@ def _parser() -> argparse.ArgumentParser:
     common(p)
     tests_opt(p)
     sandbox_opt(p)
+    diff_opt(p)
     p.add_argument("--rounds", type=int, default=3)
     p.add_argument("--budget", type=int, help="token cap; overrides NEBIUS_TOKEN_BUDGET")
     p.add_argument("--test-timeout", type=float, default=20.0)
@@ -112,6 +128,14 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--attempts", type=int, default=1, help="run the whole loop up to N times and keep the best result (N x the tokens)")
     p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
+    p.add_argument("--minimize", action="store_true", help="afterwards, drop new tests that catch nothing the others miss (costs test runs, no tokens)")
+
+    p = sub.add_parser("badge", help="write a mutation-score badge (SVG) for a README")
+    source = p.add_mutually_exclusive_group(required=True)
+    source.add_argument("--score", type=float, help="the score in percent")
+    source.add_argument("--report", help="a JSON report from run, baseline or scan --fix (uses its final score)")
+    p.add_argument("--out", default="mutagent-badge.svg")
+    p.add_argument("--label", default="mutation score")
 
     sub.add_parser("sandbox-check", help="smoke-test Nebius Token Factory Sandboxes with a tiny project (no model calls)")
 
@@ -133,6 +157,28 @@ def _sandbox(args: argparse.Namespace):
     )
 
 
+def _write_badge(path: str | None, score: float | None, label: str = "mutation score") -> None:
+    if not path:
+        return
+    from .badge import render_badge
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(render_badge(score, label), encoding="utf-8")
+    print(f"badge: {path}")
+
+
+def _badge(args: argparse.Namespace) -> int:
+    score = args.score
+    if args.report:
+        try:
+            score = float(json.loads(Path(args.report).read_text(encoding="utf-8"))["final_score"])
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"error: cannot read a final score from {args.report}: {exc}", file=sys.stderr)
+            return 2
+    _write_badge(args.out, score, args.label)
+    return 0
+
+
 def _gate(score: float, minimum: float | None) -> int:
     """Exit code 4 when a required minimum score is not reached."""
     if minimum is not None and score < minimum:
@@ -150,15 +196,30 @@ def _scan(args: argparse.Namespace) -> int:
     if missing or not targets:
         print("error: " + (f"not found: {', '.join(missing)}" if missing else "no modules found"), file=sys.stderr)
         return 2
+    if args.diff:
+        try:
+            if args.discover:
+                from .scan import changed_targets
+
+                targets = changed_targets(project, targets, args.diff)
+                if not targets:
+                    print(f"No Python module changed compared with {args.diff}; nothing to check.")
+                    return 0
+        except DiffError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     if args.fix and args.min_score is None:
         print("error: --fix needs --min-score to know which modules are too weak", file=sys.stderr)
         return 2
     try:
         runner = _sandbox(args)
-        rows = scan(project, targets, tests=args.tests, test_timeout=args.test_timeout, runner=runner)
+        rows = scan(project, targets, tests=args.tests, test_timeout=args.test_timeout, runner=runner, diff=args.diff)
     except SandboxError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 3
+    except DiffError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print("\n" + format_table(rows))
     if args.fix:
         weak = [r for r in rows if r.score is not None and r.score < args.min_score]
@@ -179,7 +240,8 @@ def _scan(args: argparse.Namespace) -> int:
                         max_rounds=args.rounds, patience=args.patience, docs=docs,
                         test_timeout=args.test_timeout, triage=False, explain=True,
                         write_back=True, tests=args.tests, generated_rel=_generated_name(row.target),
-                        runner=runner,
+                        runner=runner, minimize=args.minimize,
+                        lines=changed_lines(project, row.target, args.diff) if args.diff else None,
                     )
                     out = Path(args.report_dir) / (row.target.replace("/", "__").replace("\\", "__") + ".json")
                     out.parent.mkdir(parents=True, exist_ok=True)
@@ -203,6 +265,7 @@ def _scan(args: argparse.Namespace) -> int:
                 return 3
             print("\n" + format_table(rows))
     scored = [r.score for r in rows if r.score is not None]
+    _write_badge(args.badge, min(scored) if scored else None)
     return _gate(min(scored), args.min_score) if scored else 0
 
 
@@ -262,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
         return _scan(args)
     if args.cmd == "sandbox-check":
         return _sandbox_check()
+    if args.cmd == "badge":
+        return _badge(args)
     project = Path(args.project)
     if not (project / args.target).is_file():
         print(f"error: {project / args.target} not found", file=sys.stderr)
@@ -277,7 +342,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.cmd == "score":
             runner = _sandbox(args)
-            mutants, statuses = measure(project, args.target, args.test_timeout, args.tests, runner=runner)
+            lines = changed_lines(project, args.target, args.diff) if args.diff else None
+            if lines is not None and not generate_mutants((project / args.target).read_text(encoding="utf-8"), lines):
+                print(f"No bugs to plant in the lines changed since {args.diff}; nothing to check.")
+                return 0
+            mutants, statuses = measure(project, args.target, args.test_timeout, args.tests, runner=runner, lines=lines)
+            if lines is not None:
+                print(f"only the {len(mutants)} planted bug(s) on lines changed since {args.diff}")
             killed, survived = counts(statuses)
             print(f"mutation score: {mutation_score(statuses):.1f}% ({killed} killed / {survived} survived)")
             covered = project_coverage(project, args.target, args.tests, runner=runner)
@@ -286,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
             for m in mutants:
                 if statuses[m.id] == "survived":
                     print(f"  survived #{m.id} line {m.lineno} {m.kind}")
+            _write_badge(args.badge, mutation_score(statuses))
             return _gate(mutation_score(statuses), args.min_score)
 
         load_dotenv(Path(".env"))
@@ -309,6 +381,8 @@ def main(argv: list[str] | None = None) -> int:
             tests=args.tests,
             docs=_docs(args, project, args.target),
             runner=runner,
+            minimize=args.minimize,
+            lines=changed_lines(project, args.target, args.diff) if args.diff else None,
         )
     except (ConfigError, DocsUnavailable) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -316,6 +390,14 @@ def main(argv: list[str] | None = None) -> int:
     except SandboxError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 3
+    except DiffError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        if "no mutation sites" not in str(exc):
+            raise
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     except BaselineFailing as exc:
         print("error: the project's own tests fail before any mutation:\n" + str(exc), file=sys.stderr)
         return 1

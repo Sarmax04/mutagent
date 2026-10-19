@@ -18,12 +18,12 @@ Line coverage in particular says little about that. It counts the lines the test
 
 | Module | Line coverage | Planted bugs caught |
 |---|---|---|
-| cachetools `func.py` | 100.0% | 89.1% |
-| inflection | 98.8% | 88.9% |
-| python-slugify `slugify.py` | 75.6% | 54.2% |
-| Toy pricing module | 64.7% | 37.8% |
+| cachetools `func.py` | 100.0% | 89.7% (52 of 58) |
+| inflection | 98.8% | 90.8% (119 of 131) |
+| python-slugify `slugify.py` | 75.6% | 55.4% (92 of 166) |
+| Toy pricing module | 64.7% | 34.1% (14 of 41) |
 
-Even with 100% line coverage, 1 planted bug in 9 slipped through. The page and the Markdown report show coverage next to the score, and `scan` has a coverage column. Only line coverage is measured, not branches.
+Even with 100% line coverage, 6 of 58 planted bugs slipped through. The page and the Markdown report show coverage next to the score, and `scan` has a coverage column. Only line coverage is measured, not branches.
 
 ## How it works
 
@@ -75,9 +75,14 @@ mutagent run --project examples/demo_project --target pricing.py --rounds 6 --ex
 # 2b. model runs vary a lot; run the whole loop up to 3 times and keep the best (3x the tokens)
 mutagent run --project examples/demo_project --target pricing.py --explain --attempts 3
 
+# 2c. afterwards keep only the new tests that catch something the others miss (test runs only, no tokens)
+mutagent run --project examples/demo_project --target pricing.py --explain --minimize
+
 # 3. the comparison baseline: same loop and model, no bug feedback
 mutagent baseline --project examples/demo_project --target pricing.py
 ```
+
+**Trimming (`--minimize`).** The agent keeps a whole round of tests whenever the score rises, so the final file often holds tests that catch nothing the others don't already catch. `--minimize` runs the new tests alone against every planted bug only they catch, keeps the smallest set that still catches all of them, and checks that the trimmed file passes and reaches the same score; otherwise it keeps the full file. The report and the page say how many tests were dropped. The web demo always trims.
 
 Other commands: `mutagent mutants ...` lists the mutants for a module without running anything. `python -m pytest` runs this repo's own tests, which use a fake model and need no API key.
 
@@ -94,18 +99,20 @@ mutagent score --project path/to/lib --target src/pkg/mod.py --tests tests/test_
 
 ### Targets measured so far
 
-Baseline mutation score of each project's *own* tests, before the agent does anything (measured once with the current set of planted bugs, in a cloud Linux container; timings vary by machine). These are not agent results.
+Baseline mutation score and line coverage of each project's *own* tests, before the agent does anything (measured with the current 12 kinds of planted bugs, in a cloud Linux container, without `--sandbox`; the time includes the coverage run and varies by machine). These are not agent results.
 
-| Target (MIT-licensed) | Mutants | Baseline score | One scoring pass |
-|---|---|---|---|
-| `examples/demo_project/pricing.py` (toy) | 37 | 37.8% | ~5 s |
-| cachetools `func.py` | 55 | 89.1% | ~19 s |
-| python-slugify `slugify.py` (two of its test files) | 118 | 54.2% | ~53 s |
-| inflection `__init__.py` | 108 | 88.9% | ~57 s |
-| humanize `filesize.py` | 36 | 97.2% | ~14 s |
-| humanize `lists.py` | 20 | 90.0% | ~8 s |
-| humanize `time.py` | 366 | 89.6% | ~6 min |
-| cachetools `keys.py` (with its own `test_keys.py`, not shipped) | 19 | 94.7% | ~5 s |
+| Target (MIT-licensed) | Mutants | Baseline score | Line coverage | Scoring time |
+|---|---|---|---|---|
+| `examples/demo_project/pricing.py` (toy) | 41 | 34.1% | 64.7% | ~20 s |
+| cachetools `func.py` | 58 | 89.7% | 100.0% | ~28 s |
+| python-slugify `slugify.py` (two of its test files) | 166 | 55.4% | 75.6% | ~100 s |
+| inflection `__init__.py` | 131 | 90.8% | 98.8% | ~95 s |
+| humanize `filesize.py` | 44 | 97.7% | 100.0% | ~24 s |
+| humanize `lists.py` | 21 | 90.5% | 100.0% | ~12 s |
+| humanize `time.py` | 444 | 91.0% | 100.0% | ~11 min |
+| cachetools `keys.py` (with its own `test_keys.py`, not shipped) | 23 | 91.3% | 100.0% | ~11 s |
+
+Five of these modules have 100% line coverage, and in every one of them some planted bugs still slip through.
 
 Unmodified copies of cachetools, inflection and python-slugify (all MIT) are vendored in `examples/` so the demo runs out of the box; each folder has a `VENDORED.md` with the source and license. The humanize rows were measured on a separate checkout and are not shipped.
 
@@ -146,17 +153,28 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0                   # needed for diff-base
       - uses: Sarmax04/mutagent@v1
         with:
           targets: src/yourpkg/module.py   # leave out to score every module
           tests: tests/test_module.py      # leave out to run everything pytest finds
           min-score: "85"
           install: pip install -e .        # your project's own dependencies
+          diff-base: origin/${{ github.base_ref }}   # optional: only the lines this PR changed
+          comment: "true"                  # optional: post the table on the PR
+    permissions:
+      contents: read
+      pull-requests: write                 # only for comment: "true"
 ```
 
-It writes the score table to the job summary and exposes the lowest score as the `lowest-score` output. Without the Action: `pip install "git+https://github.com/Sarmax04/mutagent"` and `mutagent scan --project . --discover --min-score 85` (exit code 4 when a module is below the line).
+It writes the score table to the job summary and exposes the lowest score as the `lowest-score` output. With `comment: "true"` it also posts the table as a pull-request comment and updates that same comment on every push.
 
-To let the agent strengthen the tests, run `mutagent run ... --min-score 85` with `NEBIUS_API_KEY` set as a secret, then turn the saved JSON into a readable report with `mutagent report mutagent_report.json --out report.md`. The web demo also has a "Download test file" button.
+**Only the changed lines.** Scoring whole modules on every pull request is slow. With `diff-base` (or `--diff REF` on `score`, `scan` and `run`) mutagent plants bugs only on the lines that changed since the merge base with that ref, uncommitted edits included, and `scan --discover --diff origin/main` looks only at the modules that changed. A module git does not track yet counts as entirely new. Only the first line of a statement counts, so a change in the continuation line of a long expression does not select that expression's bugs.
+
+**Badge.** `mutagent score ... --badge mutation.svg`, `mutagent scan ... --badge mutation.svg` (lowest module) or `mutagent badge --report mutagent_report.json` write a small SVG badge for a README. Without the Action: `pip install "git+https://github.com/Sarmax04/mutagent"` and `mutagent scan --project . --discover --min-score 85` (exit code 4 when a module is below the line).
+
+To let the agent strengthen the tests, run `mutagent run ... --min-score 85 --minimize` with `NEBIUS_API_KEY` set as a secret, then turn the saved JSON into a readable report with `mutagent report mutagent_report.json --out report.md`. The web demo also has a "Download test file" button.
 
 ### Ground the tests in the real documentation (Tavily)
 
@@ -182,11 +200,11 @@ mutagent scan --project . --targets src/app/a.py src/app/b.py --min-score 85
 mutagent scan --project . --discover --min-score 85 --fix
 ```
 
-`scan` scores every module (no API key needed) and prints a table with the weakest module last. With `--min-score` it exits with code 4 if any module is below the line. With `--fix` the agent then works on each weak module. When it improves the score it writes `tests/test_mutagent_<module>.py`, and it always saves a JSON report per module in `mutagent_reports/`.
+`scan` scores every module (no API key needed) and prints a table with the mutation score and the line coverage of each module. With `--min-score` it exits with code 4 if any module is below the line. With `--fix` the agent then works on each weak module. When it improves the score it writes `tests/test_mutagent_<module>.py`, and it always saves a JSON report per module in `mutagent_reports/`.
 
 ## Results
 
-Real runs against Nebius Token Factory with NVIDIA Nemotron models, recorded with `python scripts/record.py` (up to 6 rounds, stop after 3 rounds without progress). Each row compares the survivor-guided agent with the baseline: the same loop, model, repair steps and acceptance rule, but the model is never told which bugs survive. These recordings are the ones the web demo plays.
+Real runs against Nebius Token Factory with NVIDIA Nemotron models, recorded with `python scripts/record.py` (up to 6 rounds, stop after 3 rounds without progress). Each row compares the survivor-guided agent with the baseline: the same loop, model, repair steps and acceptance rule, but the model is never told which bugs survive. These recordings are the ones the web demo plays. They were made with the earlier set of 7 kinds of planted bugs, so their mutant counts are lower than what `mutagent score` reports today.
 
 | Target | Mutants | Score before | No bug feedback (same model) | Agent (guided) | Rounds | Tokens: agent / baseline |
 |---|---|---|---|---|---|---|
@@ -258,7 +276,7 @@ The sandbox runs Python 3.12 (change it with `MUTAGENT_SANDBOX_IMAGE`), so a mod
 
 ## Limitations
 
-- The built-in mutation engine is intentionally small (comparison, arithmetic, boolean, negation and integer-constant mutations). It is isolated in `mutation.py` and can be replaced by mutmut or Stryker.
+- The built-in mutation engine has 12 kinds of planted bugs: flipped comparisons, swapped arithmetic, `and`/`or` swaps, a removed `not`, reversed `if` conditions (also comprehension filters), `return x` -> `return None`, changed integer and boolean constants, and inside functions a removed call statement, a removed `raise`, swapped `break`/`continue`, a dropped minus sign and an assigned value replaced by `None`. It does not change strings, slices or default arguments. It is isolated in `mutation.py` and can be replaced by mutmut or Stryker.
 - Some surviving mutants are *equivalent* (they change no behaviour), so 100% is not always reachable.
 - Coverage is line coverage of the one module, measured with coverage.py. If coverage.py fails, the figure is left out and the run continues.
 - Module paths follow a flat or `src/` layout; the project's own test dependencies must be installed in the environment that runs `mutagent`.

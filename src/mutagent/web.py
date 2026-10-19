@@ -257,6 +257,7 @@ class RunManager:
                 explain=True,
                 docs=docs_lookup,
                 runner=runner,
+                minimize=True,
             )
             state.report = report.to_dict()
             state.status = "done"

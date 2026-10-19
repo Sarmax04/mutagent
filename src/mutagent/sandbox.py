@@ -263,6 +263,26 @@ class SandboxRunner:
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             return dict(pool.map(one, mutants))
 
+    def outputs(
+        self,
+        work: Path,
+        target: str,
+        mutants: list[Mutant],
+        original_source: str,
+        timeout: float = 20.0,
+        tests: Sequence[str] = (),
+    ) -> dict[int, TestRun]:
+        """Each mutant's full pytest run (no fail-fast), in parallel. Used to trim redundant tests."""
+        changed, removed = self._plan(Path(work))
+        target_name = Path(target).as_posix()
+
+        def one(mutant: Mutant) -> tuple[int, TestRun]:
+            files = {**changed, target_name: mutant.source.encode("utf-8")}
+            return mutant.id, self._pytest(files, removed, tests, timeout, False)
+
+        with ThreadPoolExecutor(max_workers=self.workers) as pool:
+            return dict(pool.map(one, mutants))
+
     def coverage(self, work: Path, target: str, tests: Sequence[str] = (), timeout: float = 120.0) -> float | None:
         """Line coverage (percent) of ``target``, measured in the sandbox. None if unavailable."""
         if os.environ.get("MUTAGENT_NO_COVERAGE") == "1":

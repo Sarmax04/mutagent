@@ -21,12 +21,20 @@ jobs:
       - run: python -m pytest -q
 
   action:
-    # the reusable action in action.yml, run on the demo project (37.8% before the agent)
+    # the reusable action in action.yml, run on the demo project (weak tests on purpose)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2  # the changed-lines check below compares with the previous commit
       - uses: ./
         with:
           project: examples/demo_project
           targets: pricing.py
           min-score: "30"
+      - name: changed-lines mode (only what the last commit touched)
+        uses: ./
+        with:
+          project: examples/demo_project
+          min-score: "30"
+          diff-base: HEAD~1

@@ -322,6 +322,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
       <button class="copy" id="download" type="button" disabled>Download test file</button>
     </span>
   </div>
+  <p class="hint" id="trim-note" hidden></p>
   <pre id="code"><code>The tests appear here once a run finishes.</code></pre>
 
   <details>
@@ -349,6 +350,13 @@ const KIND = {
   boolop: "and/or swapped",
   not: "negation dropped",
   const: "constant changed",
+  negate: "condition reversed",
+  return: "return value dropped",
+  call: "call removed",
+  raise: "raise removed",
+  loop: "break/continue swapped",
+  sign: "minus sign dropped",
+  assign: "assigned value replaced by None",
 };
 
 const app = { timer: null, started: 0, local: { project: "", ready: false }, baseline: null, presets: [], status: null, preset: null, mode: "replay", token: 0, busy: false, total: 0, wells: [], recording: null, code: "" };
@@ -568,6 +576,10 @@ function showCode(report) {
   $("#code").firstElementChild.textContent = code || "No new tests were kept in this run.";
   $("#copy").disabled = !code;
   $("#download").disabled = !code;
+  const trim = (report && report.trimmed) || {};
+  const trimmed = code && typeof trim.after === "number" && trim.after < trim.before;
+  $("#trim-note").hidden = !trimmed;
+  if (trimmed) $("#trim-note").textContent = trim.after + " tests, trimmed from " + trim.before + ": the others caught no bug these miss.";
 }
 
 function showLog(lines) {

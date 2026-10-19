@@ -24,12 +24,14 @@ from typing import Callable, Sequence
 
 from .llm import BudgetExceeded, ChatModel, Tier, strip_reasoning
 from .linecov import measure_coverage
+from .minimize import trim_tests
 from .mutation import (
     Mutant,
     copy_project,
     counts,
     evaluate,
     generate_mutants,
+    mutant_outputs,
     mutation_score,
     run_tests,
 )
@@ -86,6 +88,7 @@ class LoopReport:
     attempts: list[dict] = field(default_factory=list)  # best-of-N: every attempt's score and tokens
     initial_coverage: float | None = None  # line coverage of the target before / after (None: not measurable)
     final_coverage: float | None = None
+    trimmed: dict = field(default_factory=dict)  # --minimize: {"before", "after", "note"} test counts
     docs_lookups: list[dict] = field(default_factory=list)  # --docs: what was looked up, and where
 
     def to_dict(self) -> dict:
@@ -521,17 +524,19 @@ def measure(
     test_timeout: float = 20.0,
     tests: Sequence[str] = (),
     runner=None,
+    lines: set[int] | None = None,
 ) -> tuple[list[Mutant], dict[int, str]]:
     """Score the project's current tests without calling any model.
 
     ``runner`` (a ``SandboxRunner``) runs the tests in Token Factory Sandboxes instead of locally.
+    ``lines`` limits the planted bugs to those source lines (see ``changes.py``).
     """
     run_tests_ = runner.run_tests if runner is not None else run_tests
     evaluate_ = runner.evaluate if runner is not None else evaluate
     work = copy_project(Path(project).resolve())
     try:
         source = (work / target).read_text(encoding="utf-8")
-        mutants = generate_mutants(source)
+        mutants = generate_mutants(source, lines)
         chosen = selection(work, tests, GENERATED_REL)
         base = run_tests_(work, test_timeout, chosen)
         if base.returncode not in (0, 5):  # 5 = no tests yet, which is fine
@@ -560,6 +565,8 @@ def run_loop(
     explain: bool = False,
     docs=None,
     runner=None,
+    minimize: bool = False,
+    lines: set[int] | None = None,
 ) -> LoopReport:
     """Run the agent loop.
 
@@ -571,7 +578,8 @@ def run_loop(
     ``code_filter`` receives each candidate test file and returns a list of problems;
     any problem rejects the candidate before it is executed (see ``safety.py``).
     ``runner`` (a ``SandboxRunner``) runs every pytest invocation in Token Factory
-    Sandboxes instead of in a local subprocess.
+    Sandboxes instead of in a local subprocess. ``minimize`` trims the generated file to
+    the tests that catch something the others miss (see ``minimize.py``).
     """
     project = Path(project).resolve()
     work = copy_project(project)
@@ -579,6 +587,7 @@ def run_loop(
         return _run(
             project, work, target, llm, max_rounds, patience, test_timeout,
             triage, generated_rel, write_back, log, tests, on_round, code_filter, guided, explain, docs, runner,
+            minimize, lines,
         )
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
@@ -603,14 +612,18 @@ def _run(
     explain: bool = False,
     docs=None,
     runner=None,
+    minimize: bool = False,
+    lines: set[int] | None = None,
 ) -> LoopReport:
     run_tests_ = runner.run_tests if runner is not None else run_tests
+    outputs_ = runner.outputs if runner is not None else mutant_outputs
     evaluate_ = runner.evaluate if runner is not None else evaluate
     coverage_ = runner.coverage if runner is not None else measure_coverage
     source = (work / target).read_text(encoding="utf-8")
-    mutants = generate_mutants(source)
+    mutants = generate_mutants(source, lines)
     if not mutants:
-        raise ValueError(f"{target} has no mutation sites; nothing to test against")
+        where = " in the changed lines" if lines is not None else ""
+        raise ValueError(f"{target} has no mutation sites{where}; nothing to test against")
 
     base = run_tests_(work, test_timeout, selection(work, tests, generated_rel))
     if base.returncode not in (0, 5):
@@ -637,6 +650,7 @@ def _run(
         work, target, mutants, source, test_timeout, selection(work, tests, generated_rel)
     )
     best = mutation_score(statuses)
+    initial_statuses = dict(statuses)
     killed, survived = counts(statuses)
     report = LoopReport(
         target=target,
@@ -833,6 +847,19 @@ def _run(
             log(f"stopping: no progress for {patience} rounds")
             break
 
+    if minimize and current and not start_code:
+        trim = trim_tests(
+            work=work, target=target, source=source, mutants=mutants, code=current,
+            generated_rel=generated_rel, initial=initial_statuses, final=statuses,
+            chosen=selection(work, tests, generated_rel), timeout=test_timeout,
+            outputs=outputs_, run_tests=run_tests_, evaluate=evaluate_,
+            failing_tests=failing_tests, prune_tests=prune_tests, log=log,
+        )
+        current = trim.code
+        restore()
+        report.trimmed = {"before": trim.before, "after": trim.after, "note": trim.note}
+        if trim.after == trim.before:
+            log(f"kept all {trim.before} new tests: {trim.note}")
     report.final_score = best
     report.generated_code = current
     if current == start_code:

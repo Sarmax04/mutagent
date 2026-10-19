@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
+from .changes import changed_lines
 from .linecov import project_coverage
 from .loop import BaselineFailing, measure
 from .mutation import counts, generate_mutants, mutation_score
@@ -50,16 +51,19 @@ def scan(
     test_timeout: float = 20.0,
     log: Callable[[str], None] = print,
     runner=None,
+    diff: str | None = None,
 ) -> list[ScanRow]:
+    """Score each module. With ``diff`` (a git ref) only the changed lines get planted bugs."""
     rows: list[ScanRow] = []
     for target in targets:
         source = (Path(project) / target).read_text(encoding="utf-8")
-        if not generate_mutants(source):
-            rows.append(ScanRow(target, 0, None, note="nothing to mutate"))
+        lines = changed_lines(Path(project), target, diff) if diff else None
+        if not generate_mutants(source, lines):
+            rows.append(ScanRow(target, 0, None, note="nothing to mutate" if lines is None else "no bugs to plant in the changed lines"))
             continue
         log(f"scoring {target} ...")
         try:
-            mutants, statuses = measure(Path(project), target, test_timeout, tests, runner=runner)
+            mutants, statuses = measure(Path(project), target, test_timeout, tests, runner=runner, lines=lines)
         except BaselineFailing:
             rows.append(ScanRow(target, 0, None, note="the project's own tests fail"))
             continue
@@ -67,6 +71,11 @@ def scan(
         coverage = project_coverage(Path(project), target, tests, runner=runner)
         rows.append(ScanRow(target, len(mutants), mutation_score(statuses), killed, survived, coverage=coverage))
     return rows
+
+
+def changed_targets(project: Path, targets: Sequence[str], diff: str) -> list[str]:
+    """The targets that have changed lines compared with ``diff`` (new files included)."""
+    return [t for t in targets if changed_lines(Path(project), t, diff) != set()]
 
 
 def format_table(rows: Sequence[ScanRow]) -> str:

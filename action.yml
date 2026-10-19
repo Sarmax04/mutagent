@@ -24,6 +24,15 @@ inputs:
   install:
     description: "Command that installs the project's own dependencies (run in project), for example 'pip install -e .'."
     default: ""
+  diff-base:
+    description: "Only plant bugs on lines changed since this git ref, for example origin/main (check out with fetch-depth: 0). Empty: whole modules."
+    default: ""
+  comment:
+    description: "Post the score table as a pull-request comment and update it on every push ('true' or 'false'). Needs pull-requests: write."
+    default: "false"
+  github-token:
+    description: "Token for the pull-request comment."
+    default: ${{ github.token }}
 
 outputs:
   lowest-score:
@@ -52,8 +61,10 @@ runs:
         MG_TARGETS: ${{ inputs.targets }}
         MG_TESTS: ${{ inputs.tests }}
         MG_MIN: ${{ inputs.min-score }}
+        MG_DIFF: ${{ inputs.diff-base }}
       run: |
         args=(scan --project "$MG_PROJECT" --min-score "$MG_MIN")
+        if [ -n "$MG_DIFF" ]; then args+=(--diff "$MG_DIFF"); fi
         if [ -n "$MG_TARGETS" ]; then read -ra t <<< "$MG_TARGETS"; args+=(--targets "${t[@]}"); else args+=(--discover); fi
         if [ -n "$MG_TESTS" ]; then read -ra x <<< "$MG_TESTS"; args+=(--tests "${x[@]}"); fi
         set +e
@@ -62,13 +73,40 @@ runs:
         set -e
         lowest=$(grep -E '^lowest' mutagent_scan.txt | grep -oE '[0-9]+\.[0-9]+' | head -n 1)
         echo "lowest=${lowest}" >> "$GITHUB_OUTPUT"
+        body="${RUNNER_TEMP:-/tmp}/mutagent_comment.md"
         {
+          echo "<!-- mutagent -->"
           echo "## mutagent: mutation score (minimum ${MG_MIN}%)"
+          if [ -n "$MG_DIFF" ]; then echo; echo "Planted bugs only on lines changed since \`${MG_DIFF}\`."; fi
           echo
-          echo '```'
-          sed -n '/^module/,$p' mutagent_scan.txt
-          echo '```'
+          if grep -q '^module' mutagent_scan.txt; then
+            echo '```'
+            sed -n '/^module/,$p' mutagent_scan.txt
+            echo '```'
+          else
+            grep -E 'nothing to check|^error' mutagent_scan.txt || echo "No result."
+          fi
           if [ "$code" = "4" ]; then echo; echo "At least one module is below ${MG_MIN}%: its tests miss too many planted bugs."; fi
-        } >> "$GITHUB_STEP_SUMMARY"
+          echo
+          echo "Score = planted bugs the tests catch. Coverage = lines the tests run."
+        } > "$body"
+        cat "$body" >> "$GITHUB_STEP_SUMMARY"
+        echo "body=${body}" >> "$GITHUB_OUTPUT"
         rm -f mutagent_scan.txt
         exit "$code"
+    - name: Comment on the pull request
+      if: ${{ always() && inputs.comment == 'true' && github.event_name == 'pull_request' && steps.scan.outputs.body != '' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+        BODY: ${{ steps.scan.outputs.body }}
+      run: |
+        # update mutagent's earlier comment instead of adding a new one on every push
+        id=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+          --jq '.[] | select(.body | contains("<!-- mutagent -->")) | .id' | tail -n 1)
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" -F "body=@${BODY}" > /dev/null
+        else
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$BODY"
+        fi

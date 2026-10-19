@@ -13,7 +13,8 @@ Run it from the repository root, with .env filled in:
     python scripts/record.py --sandbox          # run every pytest in Nebius Token Factory Sandboxes (much faster)
 
 Defaults match the published recordings: up to 6 rounds, stop after 3 rounds
-without progress, no triage, and the FAST model explains the bugs that survive.
+without progress, no triage, the FAST model explains the bugs that survive, and the
+new tests are trimmed to those that catch something the others miss (``--minimize``).
 
 Nothing is written into the example projects (``--no-write-back``). Recordings must
 come from real runs only; never edit them by hand.
@@ -70,6 +71,7 @@ def main() -> int:
             common.append("--sandbox")
             if preset.packages:
                 common += ["--sandbox-packages", *preset.packages]
+        common.append("--minimize")
         guided = base + ["run", *common, "--rounds", str(args.rounds), "--report", f"replays/{preset.id}.json"]
         if args.triage and not args.no_triage:
             guided.append("--triage")

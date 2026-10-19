@@ -32,3 +32,12 @@ def test_min_score_gate(tmp_path):
     args = ["score", "--project", str(tmp_path), "--target", "m.py"]
     assert main(args + ["--min-score", "1"]) == 0
     assert main(args + ["--min-score", "100"]) == 4
+
+
+def test_report_mentions_trimmed_tests():
+    from mutagent.report import render_markdown
+
+    data = {"target": "m.py", "mutant_count": 1, "initial_score": 0.0, "final_score": 100.0, "tokens_used": 1, "rounds": [],
+            "trimmed": {"before": 9, "after": 4, "note": "trimmed"}}
+    assert "New tests: 4 (trimmed from 9" in render_markdown(data)
+    assert "New tests" not in render_markdown({**data, "trimmed": {"before": 3, "after": 3}})
