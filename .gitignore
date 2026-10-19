@@ -9,3 +9,4 @@ dist/
 mutagent_report.json
 mutagent_reports/
 mutagent_*report.json
+sandbox_test.json
