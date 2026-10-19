@@ -12,6 +12,7 @@ from .llm import ConfigError, NebiusChat, api_error_message, Settings, TokenBudg
 from .linecov import project_coverage
 from .loop import BaselineFailing, measure, run_best_of
 from .mutation import counts, generate_mutants, mutation_score
+from .sandbox import SandboxError, SandboxRunner
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -28,6 +29,15 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("mutants", help="list the mutants generated for a module (no tests run)")
     common(p)
 
+    def sandbox_opt(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--sandbox",
+            action="store_true",
+            help="run every pytest in Nebius Token Factory Sandboxes instead of on this machine (needs contree-sdk and NEBIUS_PROJECT_ID)",
+        )
+        p.add_argument("--sandbox-packages", nargs="+", default=[], metavar="PKG", help="extra pip packages the project's tests need inside the sandbox")
+        p.add_argument("--sandbox-workers", type=int, help="mutants tested in parallel (default 16, at most 40)")
+
     def tests_opt(p: argparse.ArgumentParser) -> None:
         p.add_argument(
             "--tests",
@@ -40,6 +50,7 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("score", help="score the project's existing tests (no model calls)")
     common(p)
     tests_opt(p)
+    sandbox_opt(p)
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--min-score", type=float, help="exit with code 4 if the score is below this (for CI)")
 
@@ -52,6 +63,7 @@ def _parser() -> argparse.ArgumentParser:
     group.add_argument("--targets", nargs="+", metavar="PATH", help="modules to score, relative to --project")
     group.add_argument("--discover", action="store_true", help="find the modules automatically")
     tests_opt(p)
+    sandbox_opt(p)
     p.add_argument("--test-timeout", type=float, default=20.0)
     p.add_argument("--min-score", type=float, help="exit with code 4 if any module is below this (after --fix)")
     p.add_argument("--fix", action="store_true", help="run the agent on each module below --min-score (needs an API key)")
@@ -70,6 +82,7 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("run", help="run the agent loop")
     common(p)
     tests_opt(p)
+    sandbox_opt(p)
     p.add_argument("--rounds", type=int, default=4)
     p.add_argument("--budget", type=int, help="token cap; overrides NEBIUS_TOKEN_BUDGET")
     p.add_argument("--triage", action="store_true", help="use the FAST model to skip likely-equivalent mutants")
@@ -89,6 +102,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     common(p)
     tests_opt(p)
+    sandbox_opt(p)
     p.add_argument("--rounds", type=int, default=3)
     p.add_argument("--budget", type=int, help="token cap; overrides NEBIUS_TOKEN_BUDGET")
     p.add_argument("--test-timeout", type=float, default=20.0)
@@ -99,11 +113,24 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--patience", type=int, default=3, help="stop after this many rounds without progress")
     p.add_argument("--no-write-back", action="store_true", help="do not write generated tests into the project")
 
+    sub.add_parser("sandbox-check", help="smoke-test Nebius Token Factory Sandboxes with a tiny project (no model calls)")
+
     p = sub.add_parser("serve", help="start the web demo (needs: pip install -e \".[web]\")")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--local", action="store_true", help="add a panel to run the agent on your own project (127.0.0.1 only)")
     return parser
+
+
+def _sandbox(args: argparse.Namespace):
+    """A SandboxRunner when --sandbox is given, else None. Raises SandboxError when it cannot be used."""
+    if not getattr(args, "sandbox", False):
+        return None
+    load_dotenv(Path(".env"))
+    return SandboxRunner(
+        packages=getattr(args, "sandbox_packages", []) or [],
+        workers=getattr(args, "sandbox_workers", None),
+    )
 
 
 def _gate(score: float, minimum: float | None) -> int:
@@ -126,7 +153,12 @@ def _scan(args: argparse.Namespace) -> int:
     if args.fix and args.min_score is None:
         print("error: --fix needs --min-score to know which modules are too weak", file=sys.stderr)
         return 2
-    rows = scan(project, targets, tests=args.tests, test_timeout=args.test_timeout)
+    try:
+        runner = _sandbox(args)
+        rows = scan(project, targets, tests=args.tests, test_timeout=args.test_timeout, runner=runner)
+    except SandboxError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 3
     print("\n" + format_table(rows))
     if args.fix:
         weak = [r for r in rows if r.score is not None and r.score < args.min_score]
@@ -147,6 +179,7 @@ def _scan(args: argparse.Namespace) -> int:
                         max_rounds=args.rounds, patience=args.patience, docs=docs,
                         test_timeout=args.test_timeout, triage=False, explain=True,
                         write_back=True, tests=args.tests, generated_rel=_generated_name(row.target),
+                        runner=runner,
                     )
                     out = Path(args.report_dir) / (row.target.replace("/", "__").replace("\\", "__") + ".json")
                     out.parent.mkdir(parents=True, exist_ok=True)
@@ -159,6 +192,9 @@ def _scan(args: argparse.Namespace) -> int:
             except (ConfigError, DocsUnavailable) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 2
+            except SandboxError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 3
             except Exception as exc:  # noqa: BLE001
                 message = api_error_message(exc)
                 if message is None:
@@ -168,6 +204,19 @@ def _scan(args: argparse.Namespace) -> int:
             print("\n" + format_table(rows))
     scored = [r.score for r in rows if r.score is not None]
     return _gate(min(scored), args.min_score) if scored else 0
+
+
+def _sandbox_check() -> int:
+    """Run a tiny project in Token Factory Sandboxes and say whether everything works."""
+    load_dotenv(Path(".env"))
+    try:
+        for line in SandboxRunner().check():
+            print(line)
+    except SandboxError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 3
+    print("Sandboxes work. Add --sandbox to score, scan, run or baseline.")
+    return 0
 
 
 def _docs(args: argparse.Namespace, project: Path, target: str):
@@ -211,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "scan":
         return _scan(args)
+    if args.cmd == "sandbox-check":
+        return _sandbox_check()
     project = Path(args.project)
     if not (project / args.target).is_file():
         print(f"error: {project / args.target} not found", file=sys.stderr)
@@ -225,10 +276,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.cmd == "score":
-            mutants, statuses = measure(project, args.target, args.test_timeout, args.tests)
+            runner = _sandbox(args)
+            mutants, statuses = measure(project, args.target, args.test_timeout, args.tests, runner=runner)
             killed, survived = counts(statuses)
             print(f"mutation score: {mutation_score(statuses):.1f}% ({killed} killed / {survived} survived)")
-            covered = project_coverage(project, args.target, args.tests)
+            covered = project_coverage(project, args.target, args.tests, runner=runner)
             if covered is not None:
                 print(f"line coverage:  {covered:.1f}% (lines the tests run; the mutation score says whether they would notice a bug there)")
             for m in mutants:
@@ -238,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
 
         load_dotenv(Path(".env"))
         settings = Settings.from_env()
+        runner = _sandbox(args)
         def make_llm() -> NebiusChat:
             return NebiusChat(settings, TokenBudget(args.budget or settings.token_budget))
 
@@ -255,10 +308,14 @@ def main(argv: list[str] | None = None) -> int:
             write_back=not args.no_write_back,
             tests=args.tests,
             docs=_docs(args, project, args.target),
+            runner=runner,
         )
     except (ConfigError, DocsUnavailable) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except SandboxError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 3
     except BaselineFailing as exc:
         print("error: the project's own tests fail before any mutation:\n" + str(exc), file=sys.stderr)
         return 1

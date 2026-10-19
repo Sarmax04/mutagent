@@ -49,6 +49,7 @@ def scan(
     tests: Sequence[str] = (),
     test_timeout: float = 20.0,
     log: Callable[[str], None] = print,
+    runner=None,
 ) -> list[ScanRow]:
     rows: list[ScanRow] = []
     for target in targets:
@@ -58,12 +59,12 @@ def scan(
             continue
         log(f"scoring {target} ...")
         try:
-            mutants, statuses = measure(Path(project), target, test_timeout, tests)
+            mutants, statuses = measure(Path(project), target, test_timeout, tests, runner=runner)
         except BaselineFailing:
             rows.append(ScanRow(target, 0, None, note="the project's own tests fail"))
             continue
         killed, survived = counts(statuses)
-        coverage = project_coverage(Path(project), target, tests)
+        coverage = project_coverage(Path(project), target, tests, runner=runner)
         rows.append(ScanRow(target, len(mutants), mutation_score(statuses), killed, survived, coverage=coverage))
     return rows
 

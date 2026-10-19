@@ -16,6 +16,7 @@ class Preset:
     target: str  # module under test, relative to the project folder
     tests: tuple[str, ...]  # test files to run ("" = everything pytest finds)
     live: bool = True  # False: too slow to score on a small server, so recording only
+    packages: tuple[str, ...] = ()  # extra pip packages the tests need inside a sandbox
 
 
 PRESETS: tuple[Preset, ...] = (
@@ -61,6 +62,7 @@ PRESETS: tuple[Preset, ...] = (
         target="slugify/slugify.py",
         tests=("tests/test_legacy.py", "tests/test_modern_word_boundary.py"),
         live=False,
+        packages=("text-unidecode",),
     ),
 )
 

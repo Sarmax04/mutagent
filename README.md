@@ -231,7 +231,30 @@ The agent executes model-written test code with pytest, so treat it as untrusted
 - Each test run has a timeout.
 - In the web demo, every model-written test file is screened first (`src/mutagent/safety.py`) and is rejected before running if it imports modules such as `os`, `subprocess`, `socket` or `io`, or calls `exec`, `open` and similar. This is a denylist and **not a sandbox**; a determined attacker could get around it.
 - `MUTAGENT_LIMITS=1` (Linux) starts each pytest process under CPU, memory and file-size limits.
-- Real isolation has to come from where you run it: a container or a Nebius Serverless Job, as an unprivileged user, without secrets and ideally without network access. Don't run it on a machine with data you care about.
+- **Real isolation:** with `--sandbox` every pytest run happens in Nebius Token Factory Sandboxes instead of on your machine (see below). Without it, isolation has to come from where you run mutagent: a container, as an unprivileged user, without secrets and ideally without network access. Don't run it without `--sandbox` on a machine with data you care about.
+
+## Running the tests in Nebius Token Factory Sandboxes
+
+Token Factory Sandboxes (beta) run untrusted code in isolated, on-demand environments. With `--sandbox`, mutagent runs **every** pytest invocation there: the project's own tests, the model's new tests and one run per planted bug. Model-written code never executes on your machine, and the planted bugs are tested in parallel (16 at a time by default, at most 40; the beta allows 50 concurrent operations).
+
+```bash
+pip install -e ".[sandbox]"            # installs contree-sdk
+# in .env: NEBIUS_API_KEY (already there) and NEBIUS_PROJECT_ID (from tokenfactory.nebius.com/project/api-keys)
+mutagent sandbox-check                 # tiny end-to-end test, no model calls
+mutagent score --project examples/demo_project --target pricing.py --sandbox
+mutagent run   --project examples/demo_project --target pricing.py --sandbox --explain
+mutagent scan  --project . --discover --sandbox --min-score 85 --sandbox-packages requests
+```
+
+How it works (`src/mutagent/sandbox.py`):
+
+1. Once per run, one image is prepared: `python:3.12-slim`, `pip install pytest coverage` (plus `--sandbox-packages`), and a snapshot of your project in `/work`.
+2. Every test run starts from that image and uploads only the files that differ from the snapshot (the mutated module, the generated tests), then runs pytest under `timeout`.
+3. If the sandbox itself fails (network, quota, a failed operation), mutagent stops with an error. An infrastructure failure is never counted as a caught bug, so a broken sandbox cannot inflate a score.
+
+The web server can do the same: `MUTAGENT_SANDBOX=1` makes every live run use Sandboxes, and the server refuses to run anything if Sandboxes are not usable. In `serve --local` the "Your own code" panel has a checkbox for it. `scripts/record.py --sandbox` records the demo runs this way.
+
+The sandbox runs Python 3.12 (change it with `MUTAGENT_SANDBOX_IMAGE`), so a module that needs another Python version or system libraries needs a different image. Everything the tests import has to be installable with pip (`--sandbox-packages`). The automated tests of this repository use a local stand-in for the Sandboxes SDK that executes the same shell commands; the real service is exercised by `mutagent sandbox-check`.
 
 ## Limitations
 

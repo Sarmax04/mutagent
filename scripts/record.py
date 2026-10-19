@@ -10,6 +10,7 @@ Run it from the repository root, with .env filled in:
     python scripts/record.py                    # all presets
     python scripts/record.py pricing-toy        # just one
     python scripts/record.py --triage           # also let the FAST model set aside likely-unkillable bugs
+    python scripts/record.py --sandbox          # run every pytest in Nebius Token Factory Sandboxes (much faster)
 
 Defaults match the published recordings: up to 6 rounds, stop after 3 rounds
 without progress, no triage, and the FAST model explains the bugs that survive.
@@ -45,6 +46,7 @@ def main() -> int:
     parser.add_argument("--skip-baseline", action="store_true")
     parser.add_argument("--attempts", type=int, default=1, help="best of N for both the agent and the baseline (N x the tokens)")
     parser.add_argument("--docs", action="store_true", help="both runs look up the library's documentation with Tavily (needs TAVILY_API_KEY)")
+    parser.add_argument("--sandbox", action="store_true", help="run every pytest in Nebius Token Factory Sandboxes (needs contree-sdk and NEBIUS_PROJECT_ID)")
     args = parser.parse_args()
 
     known = {p.id: p for p in PRESETS}
@@ -64,6 +66,10 @@ def main() -> int:
         common += ["--attempts", str(args.attempts)]
         if args.docs:
             common.append("--docs")
+        if args.sandbox:
+            common.append("--sandbox")
+            if preset.packages:
+                common += ["--sandbox-packages", *preset.packages]
         guided = base + ["run", *common, "--rounds", str(args.rounds), "--report", f"replays/{preset.id}.json"]
         if args.triage and not args.no_triage:
             guided.append("--triage")

@@ -520,17 +520,23 @@ def measure(
     target: str,
     test_timeout: float = 20.0,
     tests: Sequence[str] = (),
+    runner=None,
 ) -> tuple[list[Mutant], dict[int, str]]:
-    """Score the project's current tests without calling any model."""
+    """Score the project's current tests without calling any model.
+
+    ``runner`` (a ``SandboxRunner``) runs the tests in Token Factory Sandboxes instead of locally.
+    """
+    run_tests_ = runner.run_tests if runner is not None else run_tests
+    evaluate_ = runner.evaluate if runner is not None else evaluate
     work = copy_project(Path(project).resolve())
     try:
         source = (work / target).read_text(encoding="utf-8")
         mutants = generate_mutants(source)
         chosen = selection(work, tests, GENERATED_REL)
-        base = run_tests(work, test_timeout, chosen)
+        base = run_tests_(work, test_timeout, chosen)
         if base.returncode not in (0, 5):  # 5 = no tests yet, which is fine
             raise BaselineFailing(base.output)
-        return mutants, evaluate(work, target, mutants, source, test_timeout, chosen)
+        return mutants, evaluate_(work, target, mutants, source, test_timeout, chosen)
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
 
@@ -553,6 +559,7 @@ def run_loop(
     guided: bool = True,
     explain: bool = False,
     docs=None,
+    runner=None,
 ) -> LoopReport:
     """Run the agent loop.
 
@@ -563,13 +570,15 @@ def run_loop(
     ``on_round`` is called after the baseline and after every round (for live UIs).
     ``code_filter`` receives each candidate test file and returns a list of problems;
     any problem rejects the candidate before it is executed (see ``safety.py``).
+    ``runner`` (a ``SandboxRunner``) runs every pytest invocation in Token Factory
+    Sandboxes instead of in a local subprocess.
     """
     project = Path(project).resolve()
     work = copy_project(project)
     try:
         return _run(
             project, work, target, llm, max_rounds, patience, test_timeout,
-            triage, generated_rel, write_back, log, tests, on_round, code_filter, guided, explain, docs,
+            triage, generated_rel, write_back, log, tests, on_round, code_filter, guided, explain, docs, runner,
         )
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
@@ -593,13 +602,17 @@ def _run(
     guided: bool = True,
     explain: bool = False,
     docs=None,
+    runner=None,
 ) -> LoopReport:
+    run_tests_ = runner.run_tests if runner is not None else run_tests
+    evaluate_ = runner.evaluate if runner is not None else evaluate
+    coverage_ = runner.coverage if runner is not None else measure_coverage
     source = (work / target).read_text(encoding="utf-8")
     mutants = generate_mutants(source)
     if not mutants:
         raise ValueError(f"{target} has no mutation sites; nothing to test against")
 
-    base = run_tests(work, test_timeout, selection(work, tests, generated_rel))
+    base = run_tests_(work, test_timeout, selection(work, tests, generated_rel))
     if base.returncode not in (0, 5):
         raise BaselineFailing(base.output)
 
@@ -620,7 +633,7 @@ def _run(
         elif generated.exists():
             generated.unlink()
 
-    statuses = evaluate(
+    statuses = evaluate_(
         work, target, mutants, source, test_timeout, selection(work, tests, generated_rel)
     )
     best = mutation_score(statuses)
@@ -634,7 +647,7 @@ def _run(
         mode="guided" if guided else "baseline",
     )
     start_code = current
-    report.initial_coverage = measure_coverage(work, target, selection(work, tests, generated_rel))
+    report.initial_coverage = coverage_(work, target, selection(work, tests, generated_rel))
 
     def alive() -> list[int]:
         return [m.id for m in mutants if statuses[m.id] == "survived"]
@@ -652,7 +665,7 @@ def _run(
         generated.parent.mkdir(parents=True, exist_ok=True)
         generated.write_text(code, encoding="utf-8")
         chosen = selection(work, tests, generated_rel)
-        check = run_tests(work, test_timeout, chosen)
+        check = run_tests_(work, test_timeout, chosen)
         did_repair = False
         if allow_repair and not check.passed and not check.timed_out and collection_failed(check.output):
             log(f"round {rnd}: pytest could not load the new tests; asking the model to fix it once")
@@ -661,14 +674,14 @@ def _run(
             if fixed and not syntax_problem(fixed) and not (code_filter and code_filter(fixed)):
                 code = fixed
                 generated.write_text(code, encoding="utf-8")
-                check = run_tests(work, test_timeout, chosen)
+                check = run_tests_(work, test_timeout, chosen)
         full, failure, dropped = code, "", []
         if not check.passed and not check.timed_out:
             # One wrong expectation should not throw away the good tests: drop only the
             # failing tests, re-check, and repeat (a fail-fast run shows one failure at a time).
             candidate, removed = code, []
             for _ in range(5):
-                every = run_tests(work, test_timeout, chosen, fail_fast=False)
+                every = run_tests_(work, test_timeout, chosen, fail_fast=False)
                 if every.timed_out:
                     log(f"round {rnd}: the tests timed out, so nothing was dropped")
                     break
@@ -683,7 +696,7 @@ def _run(
                     break
                 candidate, removed = pruned, removed + names
                 generated.write_text(candidate, encoding="utf-8")
-                recheck = run_tests(work, test_timeout, chosen)
+                recheck = run_tests_(work, test_timeout, chosen)
                 if recheck.passed:
                     log(f"round {rnd}: dropped {len(removed)} failing test(s): {', '.join(removed)}")
                     code, check, dropped = candidate, recheck, removed
@@ -791,7 +804,7 @@ def _run(
                 note, accepted = "rejected: tests fail on the original code", False
                 stale += 1
             else:
-                new_statuses = evaluate(
+                new_statuses = evaluate_(
                     work, target, mutants, source, test_timeout,
                     selection(work, tests, generated_rel),
                 )
@@ -826,7 +839,7 @@ def _run(
         report.final_coverage = report.initial_coverage
     else:
         restore()
-        report.final_coverage = measure_coverage(work, target, selection(work, tests, generated_rel))
+        report.final_coverage = coverage_(work, target, selection(work, tests, generated_rel))
     if docs is not None:
         report.docs_lookups = list(docs.history)
     if explain and alive():

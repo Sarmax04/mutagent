@@ -31,6 +31,7 @@ from .loop import BaselineFailing, RoundResult, module_name, run_best_of
 from .presets import PRESETS, Preset, get_preset, project_path, replays_dir
 from .scan import discover_targets
 from .safety import screen_test_code
+from .sandbox import SandboxError, SandboxRunner, unavailable_reason as sandbox_unavailable
 
 log = logging.getLogger("mutagent.web")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -119,9 +120,13 @@ class RunManager:
         limits: Limits,
         models: dict[str, str] | None = None,
         local_factory: Callable[[], ChatModel] | None = None,
+        sandbox_factory: Callable[..., SandboxRunner] | None = None,
+        sandbox_always: bool = False,
     ) -> None:
         self._factory = llm_factory
         self._local_factory = local_factory
+        self._sandbox_factory = sandbox_factory  # packages, log -> SandboxRunner
+        self._sandbox_always = sandbox_always and sandbox_factory is not None
         self.limits = limits
         self.models = models or {}
         self._lock = threading.Lock()
@@ -155,6 +160,8 @@ class RunManager:
                 "models": self.models,
                 "local": self.local_enabled,
                 "docs_available": self.local_enabled and bool(os.environ.get("TAVILY_API_KEY", "").strip()),
+                "sandbox": self._sandbox_always,
+                "sandbox_available": self.local_enabled and self._sandbox_factory is not None,
             }
 
     def get(self, run_id: str) -> RunState | None:
@@ -181,7 +188,15 @@ class RunManager:
         return state
 
     def start_local(
-        self, project: Path, target: str, tests: list[str], rounds: int, docs: bool = False, attempts: int = 1
+        self,
+        project: Path,
+        target: str,
+        tests: list[str],
+        rounds: int,
+        docs: bool = False,
+        attempts: int = 1,
+        sandbox: bool = False,
+        packages: list[str] | None = None,
     ) -> RunState:
         """A run on the person's own project. Only offered by ``mutagent serve --local``."""
         if self._local_factory is None:
@@ -195,16 +210,19 @@ class RunManager:
             self._runs[state.id] = state
             while len(self._runs) > MAX_STORED_RUNS:
                 self._runs.popitem(last=False)
-        job = (project, target, tests, docs, max(1, min(attempts, LOCAL_MAX_ATTEMPTS)))
+        job = (project, target, tests, docs, max(1, min(attempts, LOCAL_MAX_ATTEMPTS)), sandbox, packages or [])
         threading.Thread(target=self._work, args=(state, None, job), daemon=True).start()
         return state
 
     def _work(self, state: RunState, preset: Preset | None, job: tuple | None = None) -> None:
         try:
-            docs_lookup, attempts = None, 1
+            docs_lookup, attempts, runner = None, 1, None
+            want_sandbox, packages = self._sandbox_always, list(getattr(preset, "packages", ()) or ())
             if job is not None:
                 make_llm = self._local_factory
-                project, target, tests, want_docs, attempts = job
+                project, target, tests, want_docs, attempts, job_sandbox, job_packages = job
+                want_sandbox = want_sandbox or job_sandbox
+                packages = job_packages
                 if want_docs:
                     from .docs import from_env
 
@@ -213,6 +231,11 @@ class RunManager:
                 make_llm = self._factory
                 project, target, tests = project_path(preset), preset.target, preset.tests  # type: ignore[union-attr]
             state.status = "running"
+            if want_sandbox:
+                if self._sandbox_factory is None:
+                    raise SandboxError(sandbox_unavailable() or "Sandboxes are not available on this server.")
+                runner = self._sandbox_factory(packages, state.log.append)
+                state.log.append("Tests run in isolated Nebius Token Factory Sandboxes.")
 
             def log_line(message: str) -> None:
                 state.log.append(message)
@@ -233,10 +256,11 @@ class RunManager:
                 code_filter=screen_test_code,
                 explain=True,
                 docs=docs_lookup,
+                runner=runner,
             )
             state.report = report.to_dict()
             state.status = "done"
-        except DocsUnavailable as exc:
+        except (DocsUnavailable, SandboxError) as exc:
             state.error = str(exc)
             state.status = "error"
         except BaselineFailing:
@@ -266,6 +290,8 @@ class LocalRunRequest(BaseModel):
     rounds: int = Field(default=4, ge=1, le=20)
     docs: bool = False
     attempts: int = Field(default=1, ge=1, le=3)
+    sandbox: bool = False
+    packages: list[str] = Field(default_factory=list, max_length=10)
 
 
 class LocalProjectRequest(BaseModel):
@@ -320,8 +346,20 @@ def create_app(
     if llm_factory is None and auto_configure:
         llm_factory, models, env_local = _live_from_env(limits)
         local_factory = local_factory or env_local
+    sandbox_factory = None
+    sandbox_always = os.environ.get("MUTAGENT_SANDBOX", "").strip() == "1"
+    if sandbox_unavailable() is None:
+        def sandbox_factory(packages, log_line):
+            return SandboxRunner(packages=packages, log=log_line)
+    elif sandbox_always:
+        # The operator asked for isolated test runs. Without Sandboxes, run nothing.
+        log.error("MUTAGENT_SANDBOX=1 but Sandboxes are not usable (%s): live runs are disabled", sandbox_unavailable())
+        llm_factory, local_factory = None, None
     # The "your own code" panel exists only when asked for (serve --local), never on a hosted server.
-    manager = RunManager(llm_factory, limits, models, local_factory if local else None)
+    manager = RunManager(
+        llm_factory, limits, models, local_factory if local else None,
+        sandbox_factory=sandbox_factory, sandbox_always=sandbox_always,
+    )
 
     app = FastAPI(title="MutAgent", docs_url=None, redoc_url=None)
     app.state.manager = manager
@@ -453,9 +491,14 @@ def create_app(
             tests.append(found.relative_to(root).as_posix())
         if body.docs and not os.environ.get("TAVILY_API_KEY", "").strip():
             raise HTTPException(400, "Looking up docs needs TAVILY_API_KEY in your .env.")
+        if body.sandbox and not manager.status()["sandbox_available"]:
+            raise HTTPException(400, "Sandboxes are not set up: " + (sandbox_unavailable() or "unknown reason") + ".")
+        if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._\-\[\],<>=!~]{0,80}", p) for p in body.packages):
+            raise HTTPException(400, "A package name for the sandbox has characters that are not allowed.")
         try:
             state = manager.start_local(
-                root, target.relative_to(root).as_posix(), tests, body.rounds, body.docs, body.attempts
+                root, target.relative_to(root).as_posix(), tests, body.rounds, body.docs, body.attempts,
+                body.sandbox, body.packages,
             )
         except Busy:
             raise HTTPException(429, "Another run is in progress. Try again in a minute.")

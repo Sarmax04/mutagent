@@ -41,8 +41,8 @@ I built mutagent alone over about two weeks: an agent that writes pytest tests w
 | What I did | What happened | Suggestion |
 |---|---|---|
 | Read the hackathon page | The Coding and Agentic Engineering track describes "agents that write, run, and test code in Token Factory", but the hackathon Resources page does not mention Sandboxes at all | Link the Sandboxes docs from the track description and the Resources page |
-| Tried to get access | Sandboxes is in beta. The access page says a project may show `inactive` and to email contree@nebius.com with the project ID; there is no self-serve switch | Activate Sandboxes automatically for hackathon participants, or add a request button in the console that shows the request status |
-| Read the Python SDK reference to plan the integration | Files can be uploaded (`upload`, `upload_bytes_file`), but I could not find how an uploaded file is attached to a run or an image, and the quickstart has no upload example | Add a recipe "upload a project folder and run pytest in it", which is exactly what coding agents need |
+| Tried to get access | Sandboxes is in beta. The access page says a project may show `inactive` and to email contree@nebius.com with the project ID; there is no self-serve switch. I emailed and got an "access is active" reply (the welcome email arrived first and did not mention Sandboxes) | Activate Sandboxes automatically for hackathon participants, or add a request button in the console that shows the request status |
+| Read the Python SDK reference to plan the integration | Files can be uploaded (`upload`, `upload_bytes_file`), but the docs do not say how an uploaded file is attached to a run. I found it by reading the SDK source: `image.run(..., files={"/path/in/image": bytes})` and `image.apply_files(...)` | Add a recipe "upload a project folder and run pytest in it", which is exactly what coding agents need |
 
 ## NVIDIA Nemotron models
 

@@ -250,6 +250,12 @@ footer { margin-top: 48px; color: var(--muted); font-size: 14px; max-width: 70ch
       <label style="flex:0 1 auto">Attempts (keep the best)
         <select id="local-attempts"><option>1</option><option>2</option><option>3</option></select>
       </label>
+      <label style="flex:0 1 auto;display:flex;align-items:center;gap:8px;color:var(--ink)">
+        <input type="checkbox" id="local-sandbox"> Run the tests in Nebius Sandboxes (isolated)
+      </label>
+      <label style="flex:1 1 220px">Extra pip packages for the sandbox (optional)
+        <input type="text" id="local-packages" placeholder="for example: requests numpy">
+      </label>
     </div>
   </section>
   <p class="blurb" id="blurb"></p>
@@ -760,6 +766,10 @@ async function findModules() {
     const docsOk = Boolean(app.status && app.status.docs_available);
     $("#local-docs").disabled = !docsOk;
     $("#local-docs").parentElement.title = docsOk ? "" : "Add TAVILY_API_KEY to your .env to use this";
+    const boxOk = Boolean(app.status && app.status.sandbox_available);
+    $("#local-sandbox").disabled = !boxOk;
+    $("#local-sandbox").parentElement.title = boxOk ? "" : "Needs contree-sdk and NEBIUS_PROJECT_ID in your .env, and Sandboxes activated for your project";
+    $("#local-packages").disabled = !boxOk;
     say("Found " + data.targets.length + " module(s) and " + data.tests.length + " test file(s). Pick one and start.");
   } catch (error) {
     say(error.message, true);
@@ -818,6 +828,8 @@ async function startLive() {
             rounds: Number($("#rounds").value),
             docs: $("#local-docs").checked,
             attempts: Number($("#local-attempts").value),
+            sandbox: $("#local-sandbox").checked,
+            packages: $("#local-packages").value.split(/[\s,]+/).filter(Boolean),
           }),
         })
       : await api("/api/runs", {

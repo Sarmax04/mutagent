@@ -290,3 +290,45 @@ def test_index_is_not_cached_across_deploys():
     response = make_client().get("/")
     assert response.headers["cache-control"] == "no-cache"
     assert 'id="progress"' in response.text
+
+
+# ---- running the tests in Token Factory Sandboxes ----
+
+
+def test_sandbox_option_needs_a_working_setup(own_project, monkeypatch):
+    monkeypatch.setattr(web, "sandbox_unavailable", lambda: "NEBIUS_PROJECT_ID is not set")
+    client = make_local_client()
+    status = client.get("/api/status").json()
+    assert status["sandbox"] is False and status["sandbox_available"] is False
+    body = {"project": str(own_project), "target": "m.py", "tests": ["tests/test_m.py"], "rounds": 1}
+    response = client.post("/api/local/runs", json={**body, "sandbox": True})
+    assert response.status_code == 400 and "NEBIUS_PROJECT_ID" in response.json()["detail"]
+    bad = client.post("/api/local/runs", json={**body, "packages": ["x; rm -rf /"]})
+    assert bad.status_code == 400
+
+
+def test_server_wide_sandbox_mode_fails_closed(monkeypatch):
+    monkeypatch.setenv("MUTAGENT_SANDBOX", "1")
+    monkeypatch.setattr(web, "sandbox_unavailable", lambda: "contree-sdk is missing")
+    app = create_app(llm_factory=lambda: ScriptedModel(), limits=Limits(), auto_configure=False)
+    assert TestClient(app).get("/api/status").json()["live"] is False
+
+
+def test_local_run_in_the_sandbox(own_project, monkeypatch):
+    import shutil as _shutil
+    import sys as _sys
+
+    if _sys.platform == "win32" or _shutil.which("bash") is None:
+        pytest.skip("the fake sandbox needs bash")
+    from fake_contree import FakeContree
+    from mutagent.sandbox import SandboxRunner
+
+    monkeypatch.setattr(web, "sandbox_unavailable", lambda: None)
+    monkeypatch.setattr(web, "SandboxRunner", lambda packages, log: SandboxRunner(client=FakeContree(), packages=packages, log=log))
+    client = make_local_client()
+    assert client.get("/api/status").json()["sandbox_available"] is True
+    body = {"project": str(own_project), "target": "m.py", "tests": ["tests/test_m.py"], "rounds": 1, "sandbox": True}
+    run = wait_done(client, client.post("/api/local/runs", json=body).json()["id"])
+    assert run["status"] == "done", run
+    assert run["report"]["final_score"] == 100.0
+    assert any("Sandboxes" in line for line in run["log"])

@@ -73,10 +73,16 @@ def measure_coverage(work: Path, target: str, tests: Sequence[str] = (), timeout
     return percent_for(report, work / target)
 
 
-def project_coverage(project: Path, target: str, tests: Sequence[str] = (), timeout: float = 120.0) -> float | None:
-    """Like ``measure_coverage`` but on a throwaway copy of ``project``."""
+def project_coverage(
+    project: Path, target: str, tests: Sequence[str] = (), timeout: float = 120.0, runner=None
+) -> float | None:
+    """Like ``measure_coverage`` but on a throwaway copy of ``project``.
+
+    With a ``runner`` (a ``SandboxRunner``) the measuring happens in Token Factory Sandboxes.
+    """
+    measure = runner.coverage if runner is not None else measure_coverage
     work = copy_project(Path(project).resolve())
     try:
-        return measure_coverage(work, target, tests, timeout)
+        return measure(work, target, tests, timeout)
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
