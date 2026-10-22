@@ -1,610 +1,1016 @@
 {
   "target": "slugify/slugify.py",
-  "mutant_count": 118,
-  "initial_score": 54.23728813559322,
-  "final_score": 86.44067796610169,
-  "tokens_used": 98388,
+  "mutant_count": 166,
+  "initial_score": 55.42168674698795,
+  "final_score": 86.144578313253,
+  "tokens_used": 363628,
   "generated_path": null,
-  "generated_code": "import pytest\nfrom slugify.slugify import (\n    slugify,\n    _decode_entities,\n    _numeric_reference,\n    _transliterate,\n    _modern_slugify,\n    _modern_truncate,\n    QUOTE_PATTERN,\n    DISALLOWED_CHARS_PATTERN,\n    DISALLOWED_UNICODE_CHARS_PATTERN,\n    DUPLICATE_DASH_PATTERN,\n    NUMBERS_PATTERN,\n    CHAR_ENTITY_PATTERN,\n    DECIMAL_PATTERN,\n    MODERN_HEX_PATTERN,\n)\n\ndef test_numeric_reference_valid_decimal():\n    m = type('Match', (), {'group': lambda self, x: '65'})()\n    assert _numeric_reference(m, 10) == 'A'\n\ndef test_numeric_reference_valid_hex():\n    m = type('Match', (), {'group': lambda self, x: '41'})()\n    assert _numeric_reference(m, 16) == 'A'\n\ndef test_numeric_reference_out_of_range():\n    m = type('Match', (), {'group': lambda self, x: '1114112'})()\n    assert _numeric_reference(m, 10) == '1114112'\n\ndef test_numeric_reference_surrogate_pair():\n    m = type('Match', (), {'group': lambda self, x: '55296'})()\n    assert _numeric_reference(m, 10) == '55296'\n\ndef test_decode_entities_none():\n    text = '&amp;&#65;&#x41;'\n    assert _decode_entities(text, False, False, False) == text\n\ndef test_decode_entities_entities_only():\n    text = '&amp; &lt; &gt;'\n    assert _decode_entities(text, True, False, False) == '& < >'\n\ndef test_decode_entities_decimal_only():\n    text = '&#65; &#66;'\n    assert _decode_entities(text, False, True, False) == 'A B'\n\ndef test_decode_entities_hexadecimal_only():\n    text = '&#x41; &#x42;'\n    assert _decode_entities(text, False, False, True) == 'A B'\n\ndef test_decode_entities_all():\n    text = '&amp; &#65; &#x41;'\n    assert _decode_entities(text, True, True, True) == '& A A'\n\ndef test_transliterate_ascii_shortcut():\n    assert _transliterate('hello', 'unidecode') == 'hello'\n    assert _transliterate('hello', 'anyascii') == 'hello'\n    assert _transliterate('hello', 'auto') == 'hello'\n\ndef test_transliterate_non_ascii_auto_fallback(monkeypatch):\n    class DummyModule:\n        @staticmethod\n        def unidecode(text): return f'unidecode-{text}'\n    monkeypatch.setitem(__import__('sys').modules, 'unidecode', DummyModule)\n    assert _transliterate('caf\u00e9', 'auto') == 'unidecode-caf\u00e9'\n\ndef test_modern_slugify_basic():\n    assert _modern_slugify('Hello World', True, True, True, 0, False, '-', False, [], None, True, (), False, 'both', 'auto') == 'hello-world'\n\ndef test_modern_slugify_replacements_pre():\n    assert _modern_slugify('foo bar', True, True, True, 0, False, '-', False, [], None, True, [['foo', 'baz']], False, 'pre', 'auto') == 'baz-bar'\n\ndef test_modern_slugify_replacements_post():\n    assert _modern_slugify('foo bar', True, True, True, 0, False, '-', False, [], None, True, [['bar', 'baz']], False, 'post', 'auto') == 'foo-baz'\n\ndef test_modern_slugify_replacements_both():\n    assert _modern_slugify('foo bar', True, True, True, 0, False, '-', False, [], None, True, [['foo', 'baz'], ['bar', 'qux']], False, 'both', 'auto') == 'baz-qux'\n\ndef test_modern_slugify_allow_unicode():\n    assert _modern_slugify('caf\u00e9', True, True, True, 0, False, '-', False, [], None, True, (), True, 'both', 'auto') == 'caf\u00e9'\n\ndef test_modern_slugify_disallowed_chars_pattern():\n    assert _modern_slugify('a@b#c$', True, True, True, 0, False, '-', False, [], None, True, (), False, 'both', 'auto') == 'a-b-c'\n\ndef test_modern_slugify_disallowed_unicode_chars_pattern():\n    assert _modern_slugify('a_b_c', True, True, True, 0, False, '-', False, [], None, True, (), True, 'both', 'auto') == 'a-b-c'\n\ndef test_modern_slugify_numbers_pattern():\n    assert _modern_slugify('1,000', True, True, True, 0, False, '-', False, [], None, True, (), False, 'both', 'auto') == '1000'\n\ndef test_modern_slugify_duplicate_dash_pattern():\n    assert _modern_slugify('a--b---c', True, True, True, 0, False, '-', False, [], None, True, (), False, 'both', 'auto') == 'a-b-c'\n\ndef test_modern_slugify_stopwords():\n    assert _modern_slugify('the quick brown fox', True, True, True, 0, False, '-', False, ['the'], None, True, (), False, 'both', 'auto') == 'quick-brown-fox'\n\ndef test_modern_slugify_lowercase_false():\n    assert _modern_slugify('Hello World', True, True, True, 0, False, '-', False, [], None, False, (), False, 'both', 'auto') == 'Hello-World'\n\ndef test_modern_truncate_zero_max_length():\n    assert _modern_truncate('a-b-c', 0, False, '-', False) == 'a-b-c'\n\ndef test_modern_truncate_under_limit():\n    assert _modern_truncate('a-b-c', 10, False, '.', False) == 'a.b.c'\n\ndef test_modern_truncate_over_limit_hard():\n    assert _modern_truncate('aa-bb-cc', 4, False, '-', False) == 'aa-b'\n\ndef test_modern_truncate_over_limit_word_boundary():\n    assert _modern_truncate('aa-bb-cc', 6, True, '-', False) == 'aa-bb'\n\ndef test_modern_truncate_over_limit_word_boundary_save_order():\n    assert _modern_truncate('aa-bb-cc-dd', 6, True, '-', True) == 'aa-bb'\n\ndef test_modern_truncate_over_limit_word_boundary_no_save_order():\n    assert _modern_truncate('aa-bb-cc-dd', 6, True, '-', False) == 'aa-bb'\n\ndef test_slugify_legacy_vs_modern_entity_decoding():\n    text = '&amp;'\n    assert slugify(text, entities=True, algorithm='legacy') == slugify(text, entities=True, algorithm='modern')\n    assert slugify(text, entities=False, algorithm='legacy') == slugify(text, entities=False, algorithm='modern')\n\ndef test_slugify_bytes_input():\n    assert slugify(b'hello world') == 'hello-world'\n    assert slugify(bytearray(b'hello world')) == 'hello-world'\n\ndef test_slugify_bytes_input_invalid_utf8():\n    assert slugify(b'\\xff\\xfe') == ''\n\ndef test_slugify_stopwords_case_sensitivity():\n    assert slugify('The THE tHe', stopwords=['the'], lowercase=False, algorithm='modern') == 'The-THE-tHe'\n    assert slugify('The THE tHe', stopwords=['the'], lowercase=True, algorithm='modern') == ''\n\ndef test_slugify_replacement_stage_invalid():\n    with pytest.raises(ValueError, match=\"replacement_stage must be\"):\n        slugify('test', replacement_stage='invalid', algorithm='modern')\n\ndef test_slugify_backend_invalid():\n    with pytest.raises(ValueError, match=\"backend must be\"):\n        slugify('test', backend='invalid', algorithm='modern')\n\ndef test_slugify_max_length_bool():\n    with pytest.raises(TypeError, match=\"max_length must be an int\"):\n        slugify('test', max_length=True, algorithm='modern')\n\ndef test_slugify_separator_non_str():\n    with pytest.raises(TypeError, match=\"separator must be str\"):\n        slugify('test', separator=123, algorithm='modern')\n\ndef test_slugify_text_non_str_non_bytes():\n    with pytest.raises(TypeError, match=\"text must be str, bytes or bytearray\"):\n        slugify(123, algorithm='modern')\n\ndef test_slugify_algorithm_invalid():\n    with pytest.raises(ValueError, match=\"algorithm must be\"):\n        slugify('test', algorithm='invalid')\n\ndef test_modern_truncate_separator_length_effect():\n    assert _modern_truncate('a-b', 3, False, '-', False) == 'a-b'\n    assert _modern_truncate('a-b', 2, False, '-', False) == 'a'\n    assert _modern_truncate('a-b', 3, False, '__', False) == 'a'\n    assert _modern_truncate('a-b', 4, False, '__', False) == 'a__b'\n\ndef test_modern_truncate_word_boundary_one_char_left():\n    assert _modern_truncate('ab-cd', 3, True, '-', False) == 'ab'\n\ndef test_modern_truncate_word_boundary_one_char_left_save_order():\n    assert _modern_truncate('ab-cd', 3, True, '-', True) == 'ab'\n\ndef test_modern_truncate_hard_cut_one_char_left():\n    assert _modern_truncate('ab-cd', 3, False, '-', False) == 'ab'\n\ndef test_modern_truncate_hard_cut_exact_fit():\n    assert _modern_truncate('ab-cd', 4, False, '-', False) == 'ab-c'\n\ndef test_slugify_replacements_none_vs_empty():\n    assert slugify('a b', replacements=None, algorithm='modern') == slugify('a b', replacements=[], algorithm='modern')\n\ndef test_slugify_stopwords_none_vs_empty():\n    assert slugify('a b', stopwords=None, algorithm='modern') == slugify('a b', stopwords=[], algorithm='modern')\n\ndef test_slugify_replacement_stage_both_empty():\n    assert slugify('a b', replacement_stage='both', replacements=[], algorithm='modern') == 'a-b'\n\ndef test_slugify_replacement_stage_pre_empty():\n    assert slugify('a b', replacement_stage='pre', replacements=[], algorithm='modern') == 'a-b'\n\ndef test_slugify_replacement_stage_post_empty():\n    assert slugify('a b', replacement_stage='post', replacements=[], algorithm='modern') == 'a-b'\n\ndef test_slugify_lowercase_true_with_stopwords():\n    assert slugify('The END', stopwords=['the'], lowercase=True, algorithm='modern') == 'end'\n\ndef test_slugify_lowercase_false_with_stopwords():\n    assert slugify('The END', stopwords=['the'], lowercase=False, algorithm='modern') == 'The-END'\n\ndef test_slugify_stopwords_with_custom_separator():\n    assert slugify('the end', stopwords=['the'], separator='::', algorithm='modern') == 'end'\n\ndef test_slugify_stopwords_with_multi_char_separator():\n    assert slugify('the end', stopwords=['the'], separator='__', algorithm='modern') == 'end'\n\ndef test_quote_pattern_sub_apostrophe():\n    assert QUOTE_PATTERN.sub(\"-\", \"rock'n'roll\") == 'rock-n-roll'\n\ndef test_disallowed_chars_pattern_sub():\n    assert DISALLOWED_CHARS_PATTERN.sub(\"-\", \"a b c\") == 'a-b-c'\n\ndef test_disallowed_unicode_chars_pattern_sub():\n    assert DISALLOWED_UNICODE_CHARS_PATTERN.sub(\"-\", \"a_b_c\") == 'a-b-c'\n\ndef test_duplicate_dash_pattern_sub():\n    assert DUPLICATE_DASH_PATTERN.sub(\"-\", \"a---b\") == 'a-b'\n\ndef test_numbers_pattern_sub():\n    assert NUMBERS_PATTERN.sub(\"\", \"1,000,000\") == '1000000'\n\ndef test_char_entity_pattern_sub():\n    from html.entities import name2codepoint\n    assert CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(1)]), \"&gt;\") == '>'\n\ndef test_decimal_pattern_sub():\n    assert DECIMAL_PATTERN.sub(lambda m: chr(int(m.group(1))), \"&#65;\") == 'A'\n\ndef test_modern_hex_pattern_sub():\n    assert MODERN_HEX_PATTERN.sub(lambda m: chr(int(m.group(1), 16)), \"&#x41;\") == 'A'\n",
+  "generated_code": "from slugify.slugify import slugify\nimport pytest\n\ndef test_modern_algo_type_validation_max_length_bool():\n    with pytest.raises(TypeError):\n        slugify('hello', max_length=True, algorithm='modern')\n\n\n\ndef test_modern_algo_invalid_replacement_stage():\n    with pytest.raises(ValueError):\n        slugify('hello', replacement_stage='invalid', algorithm='modern')\n\ndef test_modern_algo_invalid_backend():\n    with pytest.raises(ValueError):\n        slugify('hello', backend='invalid', algorithm='modern')\n\ndef test_modern_algo_invalid_algorithm():\n    with pytest.raises(ValueError):\n        slugify('hello', algorithm='invalid')\n\ndef test_modern_algo_bytes_input():\n    assert slugify(b'hello world', algorithm='modern') == 'hello-world'\n\n\n\n\n\n\ndef test_modern_algo_hard_cut_at_boundary():\n    assert slugify('ab', max_length=1, algorithm='modern') == 'a'\n    assert slugify('a b', max_length=1, algorithm='modern') == 'a'\n    assert slugify('a-b', max_length=1, algorithm='modern') == 'a'\n\n\ndef test_modern_algo_hard_cut_three_chars_with_delimiters():\n    assert slugify('a-bc', max_length=3, algorithm='modern') == 'a-b'\n    assert slugify('a bc', max_length=3, algorithm='modern') == 'a-b'\n    assert slugify('ab c', max_length=3, algorithm='modern') == 'ab'\n\n\n\n\ndef test_modern_algo_stopwords_case_sensitivity():\n    txt = 'Foo BAR baz'\n    assert slugify(txt, stopwords=['bar'], lowercase=True, algorithm='modern') == 'foo-baz'\n    assert slugify(txt, stopwords=['BAR'], lowercase=True, algorithm='modern') == 'foo-baz'\n    assert slugify(txt, stopwords=['bar'], lowercase=False, algorithm='modern') == 'Foo-BAR-baz'\n    assert slugify(txt, stopwords=['BAR'], lowercase=False, algorithm='modern') == 'Foo-baz'\n\n\ndef test_modern_algo_replacements_applied_in_order():\n    assert slugify('hello [world]', replacements=[('[', '('), (']', ')')], algorithm='modern') == 'hello-world'\n    assert slugify('hello [world]', replacements=[('[', '('), (']', ')')], replacement_stage='pre', algorithm='modern') == 'hello-world'\n    assert slugify('hello [world]', replacements=[('[', '('), (']', ')')], replacement_stage='post', algorithm='modern') == 'hello-world'\n    assert slugify('hello world', replacements=[('world', 'everyone')], algorithm='modern') == 'hello-everyone'\n    assert slugify('hello world', replacements=[('world', 'everyone')], replacement_stage='pre', algorithm='modern') == 'hello-everyone'\n    assert slugify('hello world', replacements=[('world', 'everyone')], replacement_stage='post', algorithm='modern') == 'hello-everyone'\n    assert slugify('hello-[world]', replacements=[('-', '_'), ('[', '('), (']', ')')], algorithm='modern') == 'hello_world'\n\ndef test_modern_algo_html_entity_decoding():\n    assert slugify('foo &amp; bar', algorithm='modern') == 'foo-bar'\n    assert slugify('foo &amp; bar', entities=False, algorithm='modern') == 'foo-amp-bar'\n    assert slugify('&#381;', decimal=True, algorithm='modern') == 'z'\n    assert slugify('&#381;', decimal=False, algorithm='modern') == '381'\n    assert slugify('&#x17D;', hexadecimal=True, algorithm='modern') == 'z'\n    assert slugify('&#x17D;', hexadecimal=False, algorithm='modern') == 'x17d'\n\n\n\ndef test_modern_algo_allow_unicode_false_cyrillic():\n    assert slugify('\u0416\u0416\u0416', algorithm='modern') == 'zhzhzh'\n\n\n\ndef test_modern_algo_backend_text_unidecode_used_when_unidecode_missing(monkeypatch):\n    if 'unidecode' in __import__('sys').modules:\n        monkeypatch.delitem(__import__('sys').modules, 'unidecode', raising=False)\n    class FakeTextUnidecode:\n        @staticmethod\n        def unidecode(text):\n            return text.replace('\u017e', 'z').replace('\u0142', 'l').replace('\u0165', 't').replace('ou\u010d', 'ouc').replace('k\u00fd', 'ky').replace('\u0148', 'n')\n    monkeypatch.setitem(__import__('sys').modules, 'text_unidecode', FakeTextUnidecode)\n    assert slugify('\u017elu\u0165ou\u010dk\u00fd', backend='text-unidecode', algorithm='modern') == 'z-lut-ouc-ky'\n\n\ndef test_modern_algo_save_order_flag_has_no_effect_when_not_word_boundary():\n    txt = 'one two three four five'\n    assert slugify(txt, max_length=12, word_boundary=False, save_order=True, algorithm='modern') == 'one-two-thre'\n    assert slugify(txt, max_length=12, word_boundary=False, save_order=False, algorithm='modern') == 'one-two-thre'\n",
   "mutants": [
     {
       "id": 0,
       "line": 42,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -32,5 +32,5 @@\n \n def _decode_entities(text: str, entities: bool, decimal: bool, hexadecimal: bool) -> str:\n-    if entities:\n+    if not entities:\n         text = CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(1)]), text)\n     if decimal:"
     },
     {
       "id": 1,
       "line": 44,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -34,5 +34,5 @@\n     if entities:\n         text = CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(1)]), text)\n-    if decimal:\n+    if not decimal:\n         text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 10), text)\n     if hexadecimal:"
     },
     {
       "id": 2,
       "line": 46,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -36,5 +36,5 @@\n     if decimal:\n         text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 10), text)\n-    if hexadecimal:\n+    if not hexadecimal:\n         text = MODERN_HEX_PATTERN.sub(lambda m: _numeric_reference(m, 16), text)\n     return text"
     },
     {
       "id": 3,
       "line": 48,
-      "kind": "return"
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -38,5 +38,5 @@\n     if hexadecimal:\n         text = MODERN_HEX_PATTERN.sub(lambda m: _numeric_reference(m, 16), text)\n-    return text\n+    return None\n \n def _transliterate(text: str, backend: Backend) -> str:"
     },
     {
       "id": 4,
       "line": 53,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -41,5 +41,5 @@\n \n def _transliterate(text: str, backend: Backend) -> str:\n-    if text.isascii():\n+    if not text.isascii():\n         return text\n     if backend == 'auto':"
     },
     {
       "id": 5,
       "line": 55,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -43,5 +43,5 @@\n     if text.isascii():\n         return text\n-    if backend == 'auto':\n+    if not backend == 'auto':\n         try:\n             module = import_module('unidecode')"
     },
     {
       "id": 6,
       "line": 66,
-      "kind": "return"
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -53,5 +53,5 @@\n         module = import_module(backend.replace('-', '_'))\n     result: str = getattr(module, 'anyascii' if backend == 'anyascii' else 'unidecode')(text)\n-    return result\n+    return None\n \n def _modern_truncate(text: str, max_length: int, word_boundary: bool, separator: str, save_order: bool) -> str:"
     },
     {
       "id": 7,
       "line": 75,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -61,5 +61,5 @@\n     Post replacements retain the historical global dash-to-separator mapping.\n     \"\"\"\n-    if max_length <= 0:\n+    if not max_length <= 0:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n     output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)"
     },
     {
       "id": 8,
-      "line": 78,
-      "kind": "negate"
+      "line": 77,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -63,5 +63,5 @@\n     if max_length <= 0:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n-    output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n+    output_length = None\n     if output_length <= max_length:\n         return text.replace(DEFAULT_SEPARATOR, separator)"
     },
     {
       "id": 9,
-      "line": 81,
-      "kind": "negate"
+      "line": 78,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -64,5 +64,5 @@\n         return text.replace(DEFAULT_SEPARATOR, separator)\n     output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n-    if output_length <= max_length:\n+    if not output_length <= max_length:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n     tokens = text.split(DEFAULT_SEPARATOR)"
     },
     {
       "id": 10,
-      "line": 119,
-      "kind": "return"
+      "line": 80,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -66,5 +66,5 @@\n     if output_length <= max_length:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n-    tokens = text.split(DEFAULT_SEPARATOR)\n+    tokens = None\n     if word_boundary:\n         words: list[str] = []"
     },
     {
       "id": 11,
-      "line": 141,
-      "kind": "negate"
+      "line": 81,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -67,5 +67,5 @@\n         return text.replace(DEFAULT_SEPARATOR, separator)\n     tokens = text.split(DEFAULT_SEPARATOR)\n-    if word_boundary:\n+    if not word_boundary:\n         words: list[str] = []\n         length = 0"
     },
     {
       "id": 12,
-      "line": 143,
-      "kind": "negate"
+      "line": 119,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -101,5 +101,5 @@\n         if len(word) > remaining:\n             break\n-    return ''.join(parts)\n+    return None\n \n def _modern_slugify(text: str | bytes | bytearray, entities: bool, decimal: bool, hexadecimal: bool, max_length: int, word_boundary: bool, separator: str, save_order: bool, stopwords: Iterable[str], regex_pattern: re.Pattern[str] | str | None, lowercase: bool, replacements: Iterable[Iterable[str]], allow_unicode: bool, replacement_stage: ReplacementStage, backend: Backend) -> str:"
     },
     {
       "id": 13,
-      "line": 145,
-      "kind": "negate"
+      "line": 141,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -104,5 +104,5 @@\n \n def _modern_slugify(text: str | bytes | bytearray, entities: bool, decimal: bool, hexadecimal: bool, max_length: int, word_boundary: bool, separator: str, save_order: bool, stopwords: Iterable[str], regex_pattern: re.Pattern[str] | str | None, lowercase: bool, replacements: Iterable[Iterable[str]], allow_unicode: bool, replacement_stage: ReplacementStage, backend: Backend) -> str:\n-    if isinstance(max_length, bool) or not isinstance(max_length, int):\n+    if not (isinstance(max_length, bool) or not isinstance(max_length, int)):\n         raise TypeError(f'max_length must be an int, not {type(max_length).__name__}')\n     if not isinstance(separator, str):"
     },
     {
       "id": 14,
-      "line": 149,
-      "kind": "negate"
+      "line": 143,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -106,5 +106,5 @@\n     if isinstance(max_length, bool) or not isinstance(max_length, int):\n         raise TypeError(f'max_length must be an int, not {type(max_length).__name__}')\n-    if not isinstance(separator, str):\n+    if not not isinstance(separator, str):\n         raise TypeError(f'separator must be str, not {type(separator).__name__}')\n     if not isinstance(text, str):"
     },
     {
       "id": 15,
-      "line": 151,
-      "kind": "negate"
+      "line": 145,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -108,5 +108,5 @@\n     if not isinstance(separator, str):\n         raise TypeError(f'separator must be str, not {type(separator).__name__}')\n-    if not isinstance(text, str):\n+    if not not isinstance(text, str):\n         if not isinstance(text, (bytes, bytearray)):\n             raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')"
     },
     {
       "id": 16,
-      "line": 156,
-      "kind": "negate"
+      "line": 149,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -112,5 +112,5 @@\n             raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')\n         text = text.decode('utf-8', 'ignore')\n-    if replacement_stage not in ('both', 'pre', 'post'):\n+    if not replacement_stage not in ('both', 'pre', 'post'):\n         raise ValueError(\"replacement_stage must be 'both', 'pre' or 'post'\")\n     if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):"
     },
     {
       "id": 17,
-      "line": 162,
-      "kind": "negate"
+      "line": 151,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -114,5 +114,5 @@\n     if replacement_stage not in ('both', 'pre', 'post'):\n         raise ValueError(\"replacement_stage must be 'both', 'pre' or 'post'\")\n-    if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):\n+    if not backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):\n         raise ValueError(\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\")\n     rules = tuple(((old, new) for old, new in replacements)) if replacements else ()"
     },
     {
       "id": 18,
-      "line": 167,
-      "kind": "negate"
+      "line": 155,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -116,5 +116,5 @@\n     if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):\n         raise ValueError(\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\")\n-    rules = tuple(((old, new) for old, new in replacements)) if replacements else ()\n+    rules = None\n     if rules and replacement_stage in ('both', 'pre'):\n         for old, new in rules:"
     },
     {
       "id": 19,
-      "line": 175,
-      "kind": "negate"
+      "line": 156,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -117,5 +117,5 @@\n         raise ValueError(\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\")\n     rules = tuple(((old, new) for old, new in replacements)) if replacements else ()\n-    if rules and replacement_stage in ('both', 'pre'):\n+    if not (rules and replacement_stage in ('both', 'pre')):\n         for old, new in rules:\n             text = text.replace(old, new)"
     },
     {
       "id": 20,
-      "line": 178,
-      "kind": "negate"
+      "line": 160,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -120,5 +120,5 @@\n         for old, new in rules:\n             text = text.replace(old, new)\n-    text = _decode_entities(text, entities, decimal, hexadecimal)\n+    text = None\n     text = QUOTE_PATTERN.sub(DEFAULT_SEPARATOR, text)\n     if allow_unicode:"
     },
     {
       "id": 21,
-      "line": 182,
-      "kind": "return"
+      "line": 161,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -121,5 +121,5 @@\n             text = text.replace(old, new)\n     text = _decode_entities(text, entities, decimal, hexadecimal)\n-    text = QUOTE_PATTERN.sub(DEFAULT_SEPARATOR, text)\n+    text = None\n     if allow_unicode:\n         text = unicodedata.normalize('NFKC', text)"
     },
     {
       "id": 22,
-      "line": 218,
-      "kind": "negate"
+      "line": 162,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -122,5 +122,5 @@\n     text = _decode_entities(text, entities, decimal, hexadecimal)\n     text = QUOTE_PATTERN.sub(DEFAULT_SEPARATOR, text)\n-    if allow_unicode:\n+    if not allow_unicode:\n         text = unicodedata.normalize('NFKC', text)\n     else:"
     },
     {
       "id": 23,
-      "line": 220,
-      "kind": "negate"
+      "line": 166,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -126,5 +126,5 @@\n     else:\n         text = _transliterate(unicodedata.normalize('NFKD', text), backend)\n-    text = unicodedata.normalize('NFKC' if allow_unicode else 'NFKD', text)\n+    text = None\n     if lowercase:\n         text = text.lower()"
     },
     {
       "id": 24,
-      "line": 226,
-      "kind": "return"
+      "line": 167,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -127,5 +127,5 @@\n         text = _transliterate(unicodedata.normalize('NFKD', text), backend)\n     text = unicodedata.normalize('NFKC' if allow_unicode else 'NFKD', text)\n-    if lowercase:\n+    if not lowercase:\n         text = text.lower()\n     text = QUOTE_PATTERN.sub('', text)"
     },
     {
       "id": 25,
-      "line": 15,
-      "kind": "arith"
+      "line": 169,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -129,5 +129,5 @@\n     if lowercase:\n         text = text.lower()\n-    text = QUOTE_PATTERN.sub('', text)\n+    text = None\n     text = NUMBERS_PATTERN.sub('', text)\n     pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)"
     },
     {
       "id": 26,
-      "line": 34,
-      "kind": "negate"
+      "line": 170,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -130,5 +130,5 @@\n         text = text.lower()\n     text = QUOTE_PATTERN.sub('', text)\n-    text = NUMBERS_PATTERN.sub('', text)\n+    text = None\n     pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)\n     text = re.sub(pattern, DEFAULT_SEPARATOR, text)"
     },
     {
       "id": 27,
-      "line": 36,
-      "kind": "return"
+      "line": 171,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -131,5 +131,5 @@\n     text = QUOTE_PATTERN.sub('', text)\n     text = NUMBERS_PATTERN.sub('', text)\n-    pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)\n+    pattern = None\n     text = re.sub(pattern, DEFAULT_SEPARATOR, text)\n     text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)"
     },
     {
       "id": 28,
-      "line": 54,
-      "kind": "return"
+      "line": 172,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -132,5 +132,5 @@\n     text = NUMBERS_PATTERN.sub('', text)\n     pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)\n-    text = re.sub(pattern, DEFAULT_SEPARATOR, text)\n+    text = None\n     text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)\n     if stopwords:"
     },
     {
       "id": 29,
-      "line": 55,
-      "kind": "compare"
+      "line": 173,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -133,5 +133,5 @@\n     pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)\n     text = re.sub(pattern, DEFAULT_SEPARATOR, text)\n-    text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)\n+    text = None\n     if stopwords:\n         excluded = {word.lower() if lowercase else word for word in stopwords}"
     },
     {
       "id": 30,
-      "line": 75,
-      "kind": "compare"
+      "line": 175,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -134,5 +134,5 @@\n     text = re.sub(pattern, DEFAULT_SEPARATOR, text)\n     text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)\n-    if stopwords:\n+    if not stopwords:\n         excluded = {word.lower() if lowercase else word for word in stopwords}\n         text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded))"
     },
     {
       "id": 31,
-      "line": 76,
-      "kind": "return"
+      "line": 178,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -137,5 +137,5 @@\n         excluded = {word.lower() if lowercase else word for word in stopwords}\n         text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded))\n-    if rules and replacement_stage in ('both', 'post'):\n+    if not (rules and replacement_stage in ('both', 'post')):\n         for old, new in rules:\n             text = text.replace(old, new)"
     },
     {
       "id": 32,
-      "line": 77,
-      "kind": "arith"
+      "line": 182,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -140,5 +140,5 @@\n         for old, new in rules:\n             text = text.replace(old, new)\n-    return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n+    return None\n \n def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:"
     },
     {
       "id": 33,
-      "line": 78,
-      "kind": "compare"
+      "line": 218,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -157,5 +157,5 @@\n     fall back. All new controls are keyword-only.\n     \"\"\"\n-    if algorithm not in ('legacy', 'modern'):\n+    if not algorithm not in ('legacy', 'modern'):\n         raise ValueError(\"algorithm must be 'legacy' or 'modern'\")\n     if algorithm == 'legacy':"
     },
     {
       "id": 34,
-      "line": 79,
-      "kind": "return"
+      "line": 220,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -159,5 +159,5 @@\n     if algorithm not in ('legacy', 'modern'):\n         raise ValueError(\"algorithm must be 'legacy' or 'modern'\")\n-    if algorithm == 'legacy':\n+    if not algorithm == 'legacy':\n         return _legacy_slugify(text, entities, decimal, hexadecimal, max_length, word_boundary, separator, save_order, stopwords, regex_pattern, lowercase, replacements, allow_unicode, replacement_stage=replacement_stage, backend=backend)\n     return _modern_slugify(text, entities, decimal, hexadecimal, max_length, word_boundary, separator, save_order, stopwords, regex_pattern, lowercase, replacements, allow_unicode, replacement_stage, backend)"
     },
     {
       "id": 35,
-      "line": 100,
-      "kind": "negate"
+      "line": 226,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -161,3 +161,3 @@\n     if algorithm == 'legacy':\n         return _legacy_slugify(text, entities, decimal, hexadecimal, max_length, word_boundary, separator, save_order, stopwords, regex_pattern, lowercase, replacements, allow_unicode, replacement_stage=replacement_stage, backend=backend)\n-    return _modern_slugify(text, entities, decimal, hexadecimal, max_length, word_boundary, separator, save_order, stopwords, regex_pattern, lowercase, replacements, allow_unicode, replacement_stage, backend)\n+    return None"
     },
     {
       "id": 36,
-      "line": 104,
-      "kind": "const"
+      "line": 15,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -8,5 +8,5 @@\n from ._legacy import slugify as _legacy_slugify, smart_truncate\n __all__ = ['slugify', 'smart_truncate', 'Backend', 'ReplacementStage', 'Algorithm']\n-CHAR_ENTITY_PATTERN = re.compile('&(%s);' % '|'.join(name2codepoint))\n+CHAR_ENTITY_PATTERN = re.compile('&(%s);' * '|'.join(name2codepoint))\n DECIMAL_PATTERN = re.compile('&#(\\\\d+);')\n MODERN_HEX_PATTERN = re.compile('&#[xX]([\\\\da-fA-F]+);')"
     },
     {
       "id": 37,
-      "line": 105,
-      "kind": "const"
+      "line": 33,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -24,5 +24,5 @@\n     \"\"\"Leave invalid references for ordinary filtering, independently of neighbors.\"\"\"\n     try:\n-        value = int(match.group(1), base)\n+        value = None\n         if 55296 <= value <= 57343:\n             return match.group(0)"
     },
     {
       "id": 38,
-      "line": 107,
-      "kind": "negate"
+      "line": 34,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -25,5 +25,5 @@\n     try:\n         value = int(match.group(1), base)\n-        if 55296 <= value <= 57343:\n+        if not 55296 <= value <= 57343:\n             return match.group(0)\n         return chr(value)"
     },
     {
       "id": 39,
-      "line": 112,
-      "kind": "negate"
+      "line": 36,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -27,5 +27,5 @@\n         if 55296 <= value <= 57343:\n             return match.group(0)\n-        return chr(value)\n+        return None\n     except (ValueError, OverflowError):\n         return match.group(0)"
     },
     {
       "id": 40,
-      "line": 115,
-      "kind": "arith"
+      "line": 43,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -33,5 +33,5 @@\n def _decode_entities(text: str, entities: bool, decimal: bool, hexadecimal: bool) -> str:\n     if entities:\n-        text = CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(1)]), text)\n+        text = None\n     if decimal:\n         text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 10), text)"
     },
     {
       "id": 41,
-      "line": 117,
-      "kind": "negate"
+      "line": 45,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -35,5 +35,5 @@\n         text = CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(1)]), text)\n     if decimal:\n-        text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 10), text)\n+        text = None\n     if hexadecimal:\n         text = MODERN_HEX_PATTERN.sub(lambda m: _numeric_reference(m, 16), text)"
     },
     {
       "id": 42,
-      "line": 141,
-      "kind": "boolop"
+      "line": 47,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -37,5 +37,5 @@\n         text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 10), text)\n     if hexadecimal:\n-        text = MODERN_HEX_PATTERN.sub(lambda m: _numeric_reference(m, 16), text)\n+        text = None\n     return text\n "
     },
     {
       "id": 43,
-      "line": 143,
-      "kind": "not"
+      "line": 54,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -42,5 +42,5 @@\n def _transliterate(text: str, backend: Backend) -> str:\n     if text.isascii():\n-        return text\n+        return None\n     if backend == 'auto':\n         try:"
     },
     {
       "id": 44,
-      "line": 145,
-      "kind": "not"
+      "line": 55,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -43,5 +43,5 @@\n     if text.isascii():\n         return text\n-    if backend == 'auto':\n+    if backend != 'auto':\n         try:\n             module = import_module('unidecode')"
     },
     {
       "id": 45,
-      "line": 146,
-      "kind": "negate"
+      "line": 63,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -51,5 +51,5 @@\n             module = import_module('text_unidecode')\n     else:\n-        module = import_module(backend.replace('-', '_'))\n+        module = None\n     result: str = getattr(module, 'anyascii' if backend == 'anyascii' else 'unidecode')(text)\n     return result"
     },
     {
       "id": 46,
-      "line": 149,
-      "kind": "compare"
+      "line": 75,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -61,5 +61,5 @@\n     Post replacements retain the historical global dash-to-separator mapping.\n     \"\"\"\n-    if max_length <= 0:\n+    if max_length < 0:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n     output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)"
     },
     {
       "id": 47,
-      "line": 151,
-      "kind": "compare"
+      "line": 76,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -62,5 +62,5 @@\n     \"\"\"\n     if max_length <= 0:\n-        return text.replace(DEFAULT_SEPARATOR, separator)\n+        return None\n     output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n     if output_length <= max_length:"
     },
     {
       "id": 48,
-      "line": 155,
-      "kind": "negate"
+      "line": 77,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -63,5 +63,5 @@\n     if max_length <= 0:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n-    output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n+    output_length = len(text) - text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n     if output_length <= max_length:\n         return text.replace(DEFAULT_SEPARATOR, separator)"
     },
     {
       "id": 49,
-      "line": 156,
-      "kind": "boolop"
+      "line": 78,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -64,5 +64,5 @@\n         return text.replace(DEFAULT_SEPARATOR, separator)\n     output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n-    if output_length <= max_length:\n+    if output_length < max_length:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n     tokens = text.split(DEFAULT_SEPARATOR)"
     },
     {
       "id": 50,
-      "line": 171,
-      "kind": "boolop"
+      "line": 79,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -65,5 +65,5 @@\n     output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n     if output_length <= max_length:\n-        return text.replace(DEFAULT_SEPARATOR, separator)\n+        return None\n     tokens = text.split(DEFAULT_SEPARATOR)\n     if word_boundary:"
     },
     {
       "id": 51,
-      "line": 178,
-      "kind": "boolop"
+      "line": 100,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -84,5 +84,5 @@\n             elif save_order:\n                 break\n-        if words:\n+        if not words:\n             return ''.join(words)\n     parts: list[str] = []"
     },
     {
       "id": 52,
-      "line": 187,
-      "kind": "const"
+      "line": 104,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -87,5 +87,5 @@\n             return ''.join(words)\n     parts: list[str] = []\n-    length = 0\n+    length = 1\n     previous_index = 0\n     for index, word in enumerate(tokens):"
     },
     {
       "id": 53,
-      "line": 188,
-      "kind": "const"
+      "line": 105,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -88,5 +88,5 @@\n     parts: list[str] = []\n     length = 0\n-    previous_index = 0\n+    previous_index = 1\n     for index, word in enumerate(tokens):\n         if not word:"
     },
     {
       "id": 54,
-      "line": 189,
-      "kind": "const"
+      "line": 107,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -90,5 +90,5 @@\n     previous_index = 0\n     for index, word in enumerate(tokens):\n-        if not word:\n+        if not not word:\n             continue\n         delimiter = separator * (index - previous_index)"
     },
     {
       "id": 55,
-      "line": 190,
-      "kind": "const"
+      "line": 110,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -92,5 +92,5 @@\n         if not word:\n             continue\n-        delimiter = separator * (index - previous_index)\n+        delimiter = None\n         remaining = max_length - length - len(delimiter)\n         if remaining <= 0:"
     },
     {
       "id": 56,
-      "line": 191,
-      "kind": "const"
+      "line": 111,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -93,5 +93,5 @@\n             continue\n         delimiter = separator * (index - previous_index)\n-        remaining = max_length - length - len(delimiter)\n+        remaining = None\n         if remaining <= 0:\n             break"
     },
     {
       "id": 57,
-      "line": 193,
-      "kind": "const"
+      "line": 112,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -94,5 +94,5 @@\n         delimiter = separator * (index - previous_index)\n         remaining = max_length - length - len(delimiter)\n-        if remaining <= 0:\n+        if not remaining <= 0:\n             break\n         parts.append(delimiter + word[:remaining])"
     },
     {
       "id": 58,
-      "line": 196,
-      "kind": "const"
+      "line": 114,
+      "kind": "call",
+      "diff": "--- original\n+++ mutant\n@@ -96,5 +96,5 @@\n         if remaining <= 0:\n             break\n-        parts.append(delimiter + word[:remaining])\n+        None\n         length += len(delimiter) + min(len(word), remaining)\n         previous_index = index"
     },
     {
       "id": 59,
-      "line": 198,
-      "kind": "const"
+      "line": 115,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -97,5 +97,5 @@\n             break\n         parts.append(delimiter + word[:remaining])\n-        length += len(delimiter) + min(len(word), remaining)\n+        length -= len(delimiter) + min(len(word), remaining)\n         previous_index = index\n         if len(word) > remaining:"
     },
     {
       "id": 60,
-      "line": 218,
-      "kind": "compare"
+      "line": 116,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -98,5 +98,5 @@\n         parts.append(delimiter + word[:remaining])\n         length += len(delimiter) + min(len(word), remaining)\n-        previous_index = index\n+        previous_index = None\n         if len(word) > remaining:\n             break"
     },
     {
       "id": 61,
-      "line": 220,
-      "kind": "compare"
+      "line": 117,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -99,5 +99,5 @@\n         length += len(delimiter) + min(len(word), remaining)\n         previous_index = index\n-        if len(word) > remaining:\n+        if not len(word) > remaining:\n             break\n     return ''.join(parts)"
     },
     {
       "id": 62,
-      "line": 221,
-      "kind": "return"
+      "line": 141,
+      "kind": "boolop",
+      "diff": "--- original\n+++ mutant\n@@ -104,5 +104,5 @@\n \n def _modern_slugify(text: str | bytes | bytearray, entities: bool, decimal: bool, hexadecimal: bool, max_length: int, word_boundary: bool, separator: str, save_order: bool, stopwords: Iterable[str], regex_pattern: re.Pattern[str] | str | None, lowercase: bool, replacements: Iterable[Iterable[str]], allow_unicode: bool, replacement_stage: ReplacementStage, backend: Backend) -> str:\n-    if isinstance(max_length, bool) or not isinstance(max_length, int):\n+    if isinstance(max_length, bool) and (not isinstance(max_length, int)):\n         raise TypeError(f'max_length must be an int, not {type(max_length).__name__}')\n     if not isinstance(separator, str):"
     },
     {
       "id": 63,
-      "line": 34,
-      "kind": "compare"
+      "line": 142,
+      "kind": "raise",
+      "diff": "--- original\n+++ mutant\n@@ -105,5 +105,5 @@\n def _modern_slugify(text: str | bytes | bytearray, entities: bool, decimal: bool, hexadecimal: bool, max_length: int, word_boundary: bool, separator: str, save_order: bool, stopwords: Iterable[str], regex_pattern: re.Pattern[str] | str | None, lowercase: bool, replacements: Iterable[Iterable[str]], allow_unicode: bool, replacement_stage: ReplacementStage, backend: Backend) -> str:\n     if isinstance(max_length, bool) or not isinstance(max_length, int):\n-        raise TypeError(f'max_length must be an int, not {type(max_length).__name__}')\n+        pass\n     if not isinstance(separator, str):\n         raise TypeError(f'separator must be str, not {type(separator).__name__}')"
     },
     {
       "id": 64,
-      "line": 34,
-      "kind": "compare"
+      "line": 143,
+      "kind": "not",
+      "diff": "--- original\n+++ mutant\n@@ -106,5 +106,5 @@\n     if isinstance(max_length, bool) or not isinstance(max_length, int):\n         raise TypeError(f'max_length must be an int, not {type(max_length).__name__}')\n-    if not isinstance(separator, str):\n+    if not not isinstance(separator, str):\n         raise TypeError(f'separator must be str, not {type(separator).__name__}')\n     if not isinstance(text, str):"
     },
     {
       "id": 65,
-      "line": 35,
-      "kind": "return"
+      "line": 144,
+      "kind": "raise",
+      "diff": "--- original\n+++ mutant\n@@ -107,5 +107,5 @@\n         raise TypeError(f'max_length must be an int, not {type(max_length).__name__}')\n     if not isinstance(separator, str):\n-        raise TypeError(f'separator must be str, not {type(separator).__name__}')\n+        pass\n     if not isinstance(text, str):\n         if not isinstance(text, (bytes, bytearray)):"
     },
     {
       "id": 66,
-      "line": 38,
-      "kind": "return"
+      "line": 145,
+      "kind": "not",
+      "diff": "--- original\n+++ mutant\n@@ -108,5 +108,5 @@\n     if not isinstance(separator, str):\n         raise TypeError(f'separator must be str, not {type(separator).__name__}')\n-    if not isinstance(text, str):\n+    if not not isinstance(text, str):\n         if not isinstance(text, (bytes, bytearray)):\n             raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')"
     },
     {
       "id": 67,
-      "line": 75,
-      "kind": "const"
+      "line": 146,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -109,5 +109,5 @@\n         raise TypeError(f'separator must be str, not {type(separator).__name__}')\n     if not isinstance(text, str):\n-        if not isinstance(text, (bytes, bytearray)):\n+        if not not isinstance(text, (bytes, bytearray)):\n             raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')\n         text = text.decode('utf-8', 'ignore')"
     },
     {
       "id": 68,
-      "line": 77,
-      "kind": "arith"
+      "line": 148,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -111,5 +111,5 @@\n         if not isinstance(text, (bytes, bytearray)):\n             raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')\n-        text = text.decode('utf-8', 'ignore')\n+        text = None\n     if replacement_stage not in ('both', 'pre', 'post'):\n         raise ValueError(\"replacement_stage must be 'both', 'pre' or 'post'\")"
     },
     {
       "id": 69,
-      "line": 83,
-      "kind": "const"
+      "line": 149,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -112,5 +112,5 @@\n             raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')\n         text = text.decode('utf-8', 'ignore')\n-    if replacement_stage not in ('both', 'pre', 'post'):\n+    if replacement_stage in ('both', 'pre', 'post'):\n         raise ValueError(\"replacement_stage must be 'both', 'pre' or 'post'\")\n     if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):"
     },
     {
       "id": 70,
-      "line": 84,
-      "kind": "const"
+      "line": 150,
+      "kind": "raise",
+      "diff": "--- original\n+++ mutant\n@@ -113,5 +113,5 @@\n         text = text.decode('utf-8', 'ignore')\n     if replacement_stage not in ('both', 'pre', 'post'):\n-        raise ValueError(\"replacement_stage must be 'both', 'pre' or 'post'\")\n+        pass\n     if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):\n         raise ValueError(\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\")"
     },
     {
       "id": 71,
-      "line": 85,
-      "kind": "const"
+      "line": 151,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -114,5 +114,5 @@\n     if replacement_stage not in ('both', 'pre', 'post'):\n         raise ValueError(\"replacement_stage must be 'both', 'pre' or 'post'\")\n-    if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):\n+    if backend in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):\n         raise ValueError(\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\")\n     rules = tuple(((old, new) for old, new in replacements)) if replacements else ()"
     },
     {
       "id": 72,
-      "line": 87,
-      "kind": "negate"
+      "line": 152,
+      "kind": "raise",
+      "diff": "--- original\n+++ mutant\n@@ -115,5 +115,5 @@\n         raise ValueError(\"replacement_stage must be 'both', 'pre' or 'post'\")\n     if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):\n-        raise ValueError(\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\")\n+        pass\n     rules = tuple(((old, new) for old, new in replacements)) if replacements else ()\n     if rules and replacement_stage in ('both', 'pre'):"
     },
     {
       "id": 73,
-      "line": 95,
-      "kind": "negate"
+      "line": 155,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -116,5 +116,5 @@\n     if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):\n         raise ValueError(\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\")\n-    rules = tuple(((old, new) for old, new in replacements)) if replacements else ()\n+    rules = tuple(((old, new) for old, new in replacements)) if not replacements else ()\n     if rules and replacement_stage in ('both', 'pre'):\n         for old, new in rules:"
     },
     {
       "id": 74,
-      "line": 101,
-      "kind": "return"
+      "line": 156,
+      "kind": "boolop",
+      "diff": "--- original\n+++ mutant\n@@ -117,5 +117,5 @@\n         raise ValueError(\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\")\n     rules = tuple(((old, new) for old, new in replacements)) if replacements else ()\n-    if rules and replacement_stage in ('both', 'pre'):\n+    if rules or replacement_stage in ('both', 'pre'):\n         for old, new in rules:\n             text = text.replace(old, new)"
     },
     {
       "id": 75,
-      "line": 107,
-      "kind": "not"
+      "line": 163,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -123,5 +123,5 @@\n     text = QUOTE_PATTERN.sub(DEFAULT_SEPARATOR, text)\n     if allow_unicode:\n-        text = unicodedata.normalize('NFKC', text)\n+        text = None\n     else:\n         text = _transliterate(unicodedata.normalize('NFKD', text), backend)"
     },
     {
       "id": 76,
-      "line": 110,
-      "kind": "arith"
+      "line": 165,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -125,5 +125,5 @@\n         text = unicodedata.normalize('NFKC', text)\n     else:\n-        text = _transliterate(unicodedata.normalize('NFKD', text), backend)\n+        text = None\n     text = unicodedata.normalize('NFKC' if allow_unicode else 'NFKD', text)\n     if lowercase:"
     },
     {
       "id": 77,
-      "line": 111,
-      "kind": "arith"
+      "line": 168,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -128,5 +128,5 @@\n     text = unicodedata.normalize('NFKC' if allow_unicode else 'NFKD', text)\n     if lowercase:\n-        text = text.lower()\n+        text = None\n     text = QUOTE_PATTERN.sub('', text)\n     text = NUMBERS_PATTERN.sub('', text)"
     },
     {
       "id": 78,
-      "line": 112,
-      "kind": "compare"
+      "line": 171,
+      "kind": "boolop",
+      "diff": "--- original\n+++ mutant\n@@ -131,5 +131,5 @@\n     text = QUOTE_PATTERN.sub('', text)\n     text = NUMBERS_PATTERN.sub('', text)\n-    pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)\n+    pattern = regex_pattern and (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)\n     text = re.sub(pattern, DEFAULT_SEPARATOR, text)\n     text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)"
     },
     {
       "id": 79,
-      "line": 115,
-      "kind": "arith"
+      "line": 176,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -135,5 +135,5 @@\n     text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)\n     if stopwords:\n-        excluded = {word.lower() if lowercase else word for word in stopwords}\n+        excluded = None\n         text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded))\n     if rules and replacement_stage in ('both', 'post'):"
     },
     {
       "id": 80,
-      "line": 117,
-      "kind": "compare"
+      "line": 177,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -136,5 +136,5 @@\n     if stopwords:\n         excluded = {word.lower() if lowercase else word for word in stopwords}\n-        text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded))\n+        text = None\n     if rules and replacement_stage in ('both', 'post'):\n         for old, new in rules:"
     },
     {
       "id": 81,
-      "line": 141,
-      "kind": "not"
+      "line": 178,
+      "kind": "boolop",
+      "diff": "--- original\n+++ mutant\n@@ -137,5 +137,5 @@\n         excluded = {word.lower() if lowercase else word for word in stopwords}\n         text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded))\n-    if rules and replacement_stage in ('both', 'post'):\n+    if rules or replacement_stage in ('both', 'post'):\n         for old, new in rules:\n             text = text.replace(old, new)"
     },
     {
       "id": 82,
-      "line": 146,
-      "kind": "not"
+      "line": 187,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -142,5 +142,5 @@\n     return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n \n-def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n+def slugify(text: str | bytes | bytearray, entities: bool=False, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n     \"\"\"Make a slug with the legacy output pipeline by default, permanently.\n "
     },
     {
       "id": 83,
-      "line": 156,
-      "kind": "compare"
+      "line": 188,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -142,5 +142,5 @@\n     return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n \n-def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n+def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=False, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n     \"\"\"Make a slug with the legacy output pipeline by default, permanently.\n "
     },
     {
       "id": 84,
-      "line": 166,
-      "kind": "negate"
+      "line": 189,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -142,5 +142,5 @@\n     return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n \n-def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n+def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=False, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n     \"\"\"Make a slug with the legacy output pipeline by default, permanently.\n "
     },
     {
       "id": 85,
-      "line": 171,
-      "kind": "negate"
+      "line": 190,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -142,5 +142,5 @@\n     return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n \n-def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n+def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=1, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n     \"\"\"Make a slug with the legacy output pipeline by default, permanently.\n "
     },
     {
       "id": 86,
-      "line": 178,
-      "kind": "compare"
+      "line": 191,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -142,5 +142,5 @@\n     return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n \n-def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n+def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=True, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n     \"\"\"Make a slug with the legacy output pipeline by default, permanently.\n "
     },
     {
       "id": 87,
-      "line": 34,
-      "kind": "const"
+      "line": 193,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -142,5 +142,5 @@\n     return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n \n-def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n+def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=True, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n     \"\"\"Make a slug with the legacy output pipeline by default, permanently.\n "
     },
     {
       "id": 88,
-      "line": 34,
-      "kind": "const"
+      "line": 196,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -142,5 +142,5 @@\n     return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n \n-def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n+def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=False, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n     \"\"\"Make a slug with the legacy output pipeline by default, permanently.\n "
     },
     {
       "id": 89,
-      "line": 59,
-      "kind": "negate"
+      "line": 198,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -142,5 +142,5 @@\n     return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n \n-def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=False, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n+def slugify(text: str | bytes | bytearray, entities: bool=True, decimal: bool=True, hexadecimal: bool=True, max_length: int=0, word_boundary: bool=False, separator: str=DEFAULT_SEPARATOR, save_order: bool=False, stopwords: Iterable[str]=(), regex_pattern: re.Pattern[str] | str | None=None, lowercase: bool=True, replacements: Iterable[Iterable[str]]=(), allow_unicode: bool=True, *, replacement_stage: ReplacementStage='both', backend: Backend='auto', algorithm: Algorithm='legacy') -> str:\n     \"\"\"Make a slug with the legacy output pipeline by default, permanently.\n "
     },
     {
       "id": 90,
-      "line": 65,
-      "kind": "negate"
+      "line": 218,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -157,5 +157,5 @@\n     fall back. All new controls are keyword-only.\n     \"\"\"\n-    if algorithm not in ('legacy', 'modern'):\n+    if algorithm in ('legacy', 'modern'):\n         raise ValueError(\"algorithm must be 'legacy' or 'modern'\")\n     if algorithm == 'legacy':"
     },
     {
       "id": 91,
-      "line": 77,
-      "kind": "arith"
+      "line": 219,
+      "kind": "raise",
+      "diff": "--- original\n+++ mutant\n@@ -158,5 +158,5 @@\n     \"\"\"\n     if algorithm not in ('legacy', 'modern'):\n-        raise ValueError(\"algorithm must be 'legacy' or 'modern'\")\n+        pass\n     if algorithm == 'legacy':\n         return _legacy_slugify(text, entities, decimal, hexadecimal, max_length, word_boundary, separator, save_order, stopwords, regex_pattern, lowercase, replacements, allow_unicode, replacement_stage=replacement_stage, backend=backend)"
     },
     {
       "id": 92,
-      "line": 87,
-      "kind": "not"
+      "line": 220,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -159,5 +159,5 @@\n     if algorithm not in ('legacy', 'modern'):\n         raise ValueError(\"algorithm must be 'legacy' or 'modern'\")\n-    if algorithm == 'legacy':\n+    if algorithm != 'legacy':\n         return _legacy_slugify(text, entities, decimal, hexadecimal, max_length, word_boundary, separator, save_order, stopwords, regex_pattern, lowercase, replacements, allow_unicode, replacement_stage=replacement_stage, backend=backend)\n     return _modern_slugify(text, entities, decimal, hexadecimal, max_length, word_boundary, separator, save_order, stopwords, regex_pattern, lowercase, replacements, allow_unicode, replacement_stage, backend)"
     },
     {
       "id": 93,
-      "line": 91,
-      "kind": "negate"
+      "line": 221,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -160,4 +160,4 @@\n         raise ValueError(\"algorithm must be 'legacy' or 'modern'\")\n     if algorithm == 'legacy':\n-        return _legacy_slugify(text, entities, decimal, hexadecimal, max_length, word_boundary, separator, save_order, stopwords, regex_pattern, lowercase, replacements, allow_unicode, replacement_stage=replacement_stage, backend=backend)\n+        return None\n     return _modern_slugify(text, entities, decimal, hexadecimal, max_length, word_boundary, separator, save_order, stopwords, regex_pattern, lowercase, replacements, allow_unicode, replacement_stage, backend)"
     },
     {
       "id": 94,
-      "line": 93,
-      "kind": "const"
+      "line": 34,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -25,5 +25,5 @@\n     try:\n         value = int(match.group(1), base)\n-        if 55296 <= value <= 57343:\n+        if 55296 < value <= 57343:\n             return match.group(0)\n         return chr(value)"
     },
     {
       "id": 95,
-      "line": 94,
-      "kind": "arith"
+      "line": 34,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -25,5 +25,5 @@\n     try:\n         value = int(match.group(1), base)\n-        if 55296 <= value <= 57343:\n+        if 55296 <= value < 57343:\n             return match.group(0)\n         return chr(value)"
     },
     {
       "id": 96,
-      "line": 95,
-      "kind": "compare"
+      "line": 35,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -26,5 +26,5 @@\n         value = int(match.group(1), base)\n         if 55296 <= value <= 57343:\n-            return match.group(0)\n+            return None\n         return chr(value)\n     except (ValueError, OverflowError):"
     },
     {
       "id": 97,
-      "line": 98,
-      "kind": "negate"
+      "line": 38,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -29,5 +29,5 @@\n         return chr(value)\n     except (ValueError, OverflowError):\n-        return match.group(0)\n+        return None\n \n def _decode_entities(text: str, entities: bool, decimal: bool, hexadecimal: bool) -> str:"
     },
     {
       "id": 98,
-      "line": 110,
-      "kind": "arith"
+      "line": 57,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -45,5 +45,5 @@\n     if backend == 'auto':\n         try:\n-            module = import_module('unidecode')\n+            module = None\n         except ModuleNotFoundError as error:\n             if error.name != 'unidecode':"
     },
     {
       "id": 99,
-      "line": 111,
-      "kind": "arith"
+      "line": 75,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -61,5 +61,5 @@\n     Post replacements retain the historical global dash-to-separator mapping.\n     \"\"\"\n-    if max_length <= 0:\n+    if max_length <= 1:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n     output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)"
     },
     {
       "id": 100,
-      "line": 112,
-      "kind": "const"
+      "line": 77,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -63,5 +63,5 @@\n     if max_length <= 0:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n-    output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n+    output_length = len(text) + text.count(DEFAULT_SEPARATOR) / (len(separator) - 1)\n     if output_length <= max_length:\n         return text.replace(DEFAULT_SEPARATOR, separator)"
     },
     {
       "id": 101,
-      "line": 114,
-      "kind": "arith"
+      "line": 83,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -69,5 +69,5 @@\n     if word_boundary:\n         words: list[str] = []\n-        length = 0\n+        length = 1\n         previous_index = 0\n         first_word = True"
     },
     {
       "id": 102,
-      "line": 176,
-      "kind": "negate"
+      "line": 84,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -70,5 +70,5 @@\n         words: list[str] = []\n         length = 0\n-        previous_index = 0\n+        previous_index = 1\n         first_word = True\n         for index, word in enumerate(tokens):"
     },
     {
       "id": 103,
-      "line": 33,
-      "kind": "const"
+      "line": 85,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -71,5 +71,5 @@\n         length = 0\n         previous_index = 0\n-        first_word = True\n+        first_word = False\n         for index, word in enumerate(tokens):\n             if not word:"
     },
     {
       "id": 104,
-      "line": 35,
-      "kind": "const"
+      "line": 87,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -73,5 +73,5 @@\n         first_word = True\n         for index, word in enumerate(tokens):\n-            if not word:\n+            if not not word:\n                 continue\n             delimiter = separator * (index - previous_index) if words or first_word else ''"
     },
     {
       "id": 105,
-      "line": 38,
-      "kind": "const"
+      "line": 91,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -75,5 +75,5 @@\n             if not word:\n                 continue\n-            delimiter = separator * (index - previous_index) if words or first_word else ''\n+            delimiter = None\n             previous_index = index\n             first_word = False"
     },
     {
       "id": 106,
-      "line": 59,
-      "kind": "compare"
+      "line": 92,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -76,5 +76,5 @@\n                 continue\n             delimiter = separator * (index - previous_index) if words or first_word else ''\n-            previous_index = index\n+            previous_index = None\n             first_word = False\n             next_length = length + len(delimiter) + len(word)"
     },
     {
       "id": 107,
-      "line": 65,
-      "kind": "compare"
+      "line": 94,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -78,5 +78,5 @@\n             previous_index = index\n             first_word = False\n-            next_length = length + len(delimiter) + len(word)\n+            next_length = None\n             if next_length <= max_length:\n                 words.append(delimiter + word)"
     },
     {
       "id": 108,
-      "line": 77,
-      "kind": "const"
+      "line": 95,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -79,5 +79,5 @@\n             first_word = False\n             next_length = length + len(delimiter) + len(word)\n-            if next_length <= max_length:\n+            if not next_length <= max_length:\n                 words.append(delimiter + word)\n                 length = next_length"
     },
     {
       "id": 109,
-      "line": 91,
-      "kind": "boolop"
+      "line": 101,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -85,5 +85,5 @@\n                 break\n         if words:\n-            return ''.join(words)\n+            return None\n     parts: list[str] = []\n     length = 0"
     },
     {
       "id": 110,
-      "line": 91,
-      "kind": "arith"
+      "line": 107,
+      "kind": "not",
+      "diff": "--- original\n+++ mutant\n@@ -90,5 +90,5 @@\n     previous_index = 0\n     for index, word in enumerate(tokens):\n-        if not word:\n+        if not not word:\n             continue\n         delimiter = separator * (index - previous_index)"
     },
     {
       "id": 111,
-      "line": 94,
-      "kind": "arith"
+      "line": 108,
+      "kind": "loop",
+      "diff": "--- original\n+++ mutant\n@@ -91,5 +91,5 @@\n     for index, word in enumerate(tokens):\n         if not word:\n-            continue\n+            break\n         delimiter = separator * (index - previous_index)\n         remaining = max_length - length - len(delimiter)"
     },
     {
       "id": 112,
-      "line": 45,
-      "kind": "const"
+      "line": 110,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -92,5 +92,5 @@\n         if not word:\n             continue\n-        delimiter = separator * (index - previous_index)\n+        delimiter = separator / (index - previous_index)\n         remaining = max_length - length - len(delimiter)\n         if remaining <= 0:"
     },
     {
       "id": 113,
-      "line": 47,
-      "kind": "const"
+      "line": 111,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -93,5 +93,5 @@\n             continue\n         delimiter = separator * (index - previous_index)\n-        remaining = max_length - length - len(delimiter)\n+        remaining = max_length - length + len(delimiter)\n         if remaining <= 0:\n             break"
     },
     {
       "id": 114,
-      "line": 91,
-      "kind": "arith"
+      "line": 112,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -94,5 +94,5 @@\n         delimiter = separator * (index - previous_index)\n         remaining = max_length - length - len(delimiter)\n-        if remaining <= 0:\n+        if remaining < 0:\n             break\n         parts.append(delimiter + word[:remaining])"
     },
     {
       "id": 115,
-      "line": 96,
-      "kind": "arith"
+      "line": 113,
+      "kind": "loop",
+      "diff": "--- original\n+++ mutant\n@@ -95,5 +95,5 @@\n         remaining = max_length - length - len(delimiter)\n         if remaining <= 0:\n-            break\n+            continue\n         parts.append(delimiter + word[:remaining])\n         length += len(delimiter) + min(len(word), remaining)"
     },
     {
       "id": 116,
-      "line": 177,
-      "kind": "compare"
+      "line": 115,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -97,5 +97,5 @@\n             break\n         parts.append(delimiter + word[:remaining])\n-        length += len(delimiter) + min(len(word), remaining)\n+        length += len(delimiter) - min(len(word), remaining)\n         previous_index = index\n         if len(word) > remaining:"
     },
     {
       "id": 117,
+      "line": 117,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -99,5 +99,5 @@\n         length += len(delimiter) + min(len(word), remaining)\n         previous_index = index\n-        if len(word) > remaining:\n+        if len(word) >= remaining:\n             break\n     return ''.join(parts)"
+    },
+    {
+      "id": 118,
+      "line": 118,
+      "kind": "loop",
+      "diff": "--- original\n+++ mutant\n@@ -100,5 +100,5 @@\n         previous_index = index\n         if len(word) > remaining:\n-            break\n+            continue\n     return ''.join(parts)\n "
+    },
+    {
+      "id": 119,
+      "line": 141,
+      "kind": "not",
+      "diff": "--- original\n+++ mutant\n@@ -104,5 +104,5 @@\n \n def _modern_slugify(text: str | bytes | bytearray, entities: bool, decimal: bool, hexadecimal: bool, max_length: int, word_boundary: bool, separator: str, save_order: bool, stopwords: Iterable[str], regex_pattern: re.Pattern[str] | str | None, lowercase: bool, replacements: Iterable[Iterable[str]], allow_unicode: bool, replacement_stage: ReplacementStage, backend: Backend) -> str:\n-    if isinstance(max_length, bool) or not isinstance(max_length, int):\n+    if isinstance(max_length, bool) or not not isinstance(max_length, int):\n         raise TypeError(f'max_length must be an int, not {type(max_length).__name__}')\n     if not isinstance(separator, str):"
+    },
+    {
+      "id": 120,
+      "line": 146,
+      "kind": "not",
+      "diff": "--- original\n+++ mutant\n@@ -109,5 +109,5 @@\n         raise TypeError(f'separator must be str, not {type(separator).__name__}')\n     if not isinstance(text, str):\n-        if not isinstance(text, (bytes, bytearray)):\n+        if not not isinstance(text, (bytes, bytearray)):\n             raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')\n         text = text.decode('utf-8', 'ignore')"
+    },
+    {
+      "id": 121,
+      "line": 147,
+      "kind": "raise",
+      "diff": "--- original\n+++ mutant\n@@ -110,5 +110,5 @@\n     if not isinstance(text, str):\n         if not isinstance(text, (bytes, bytearray)):\n-            raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')\n+            pass\n         text = text.decode('utf-8', 'ignore')\n     if replacement_stage not in ('both', 'pre', 'post'):"
+    },
+    {
+      "id": 122,
+      "line": 156,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -117,5 +117,5 @@\n         raise ValueError(\"backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'\")\n     rules = tuple(((old, new) for old, new in replacements)) if replacements else ()\n-    if rules and replacement_stage in ('both', 'pre'):\n+    if rules and replacement_stage not in ('both', 'pre'):\n         for old, new in rules:\n             text = text.replace(old, new)"
+    },
+    {
+      "id": 123,
+      "line": 158,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -119,5 +119,5 @@\n     if rules and replacement_stage in ('both', 'pre'):\n         for old, new in rules:\n-            text = text.replace(old, new)\n+            text = None\n     text = _decode_entities(text, entities, decimal, hexadecimal)\n     text = QUOTE_PATTERN.sub(DEFAULT_SEPARATOR, text)"
+    },
+    {
+      "id": 124,
+      "line": 166,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -126,5 +126,5 @@\n     else:\n         text = _transliterate(unicodedata.normalize('NFKD', text), backend)\n-    text = unicodedata.normalize('NFKC' if allow_unicode else 'NFKD', text)\n+    text = unicodedata.normalize('NFKC' if not allow_unicode else 'NFKD', text)\n     if lowercase:\n         text = text.lower()"
+    },
+    {
+      "id": 125,
+      "line": 171,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -131,5 +131,5 @@\n     text = QUOTE_PATTERN.sub('', text)\n     text = NUMBERS_PATTERN.sub('', text)\n-    pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)\n+    pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if not allow_unicode else DISALLOWED_CHARS_PATTERN)\n     text = re.sub(pattern, DEFAULT_SEPARATOR, text)\n     text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)"
+    },
+    {
+      "id": 126,
+      "line": 178,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -137,5 +137,5 @@\n         excluded = {word.lower() if lowercase else word for word in stopwords}\n         text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded))\n-    if rules and replacement_stage in ('both', 'post'):\n+    if rules and replacement_stage not in ('both', 'post'):\n         for old, new in rules:\n             text = text.replace(old, new)"
+    },
+    {
+      "id": 127,
+      "line": 180,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -139,5 +139,5 @@\n     if rules and replacement_stage in ('both', 'post'):\n         for old, new in rules:\n-            text = text.replace(old, new)\n+            text = None\n     return _modern_truncate(text, max_length, word_boundary, separator, save_order)\n "
+    },
+    {
+      "id": 128,
+      "line": 34,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -25,5 +25,5 @@\n     try:\n         value = int(match.group(1), base)\n-        if 55296 <= value <= 57343:\n+        if 55297 <= value <= 57343:\n             return match.group(0)\n         return chr(value)"
+    },
+    {
+      "id": 129,
+      "line": 34,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -25,5 +25,5 @@\n     try:\n         value = int(match.group(1), base)\n-        if 55296 <= value <= 57343:\n+        if 55296 <= value <= 57344:\n             return match.group(0)\n         return chr(value)"
+    },
+    {
+      "id": 130,
+      "line": 59,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -47,5 +47,5 @@\n             module = import_module('unidecode')\n         except ModuleNotFoundError as error:\n-            if error.name != 'unidecode':\n+            if not error.name != 'unidecode':\n                 raise\n             module = import_module('text_unidecode')"
+    },
+    {
+      "id": 131,
+      "line": 61,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -49,5 +49,5 @@\n             if error.name != 'unidecode':\n                 raise\n-            module = import_module('text_unidecode')\n+            module = None\n     else:\n         module = import_module(backend.replace('-', '_'))"
+    },
+    {
+      "id": 132,
+      "line": 65,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -52,5 +52,5 @@\n     else:\n         module = import_module(backend.replace('-', '_'))\n-    result: str = getattr(module, 'anyascii' if backend == 'anyascii' else 'unidecode')(text)\n+    result: str = getattr(module, 'anyascii' if not backend == 'anyascii' else 'unidecode')(text)\n     return result\n "
+    },
+    {
+      "id": 133,
+      "line": 77,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -63,5 +63,5 @@\n     if max_length <= 0:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n-    output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n+    output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) + 1)\n     if output_length <= max_length:\n         return text.replace(DEFAULT_SEPARATOR, separator)"
+    },
+    {
+      "id": 134,
+      "line": 87,
+      "kind": "not",
+      "diff": "--- original\n+++ mutant\n@@ -73,5 +73,5 @@\n         first_word = True\n         for index, word in enumerate(tokens):\n-            if not word:\n+            if not not word:\n                 continue\n             delimiter = separator * (index - previous_index) if words or first_word else ''"
+    },
+    {
+      "id": 135,
+      "line": 88,
+      "kind": "loop",
+      "diff": "--- original\n+++ mutant\n@@ -74,5 +74,5 @@\n         for index, word in enumerate(tokens):\n             if not word:\n-                continue\n+                break\n             delimiter = separator * (index - previous_index) if words or first_word else ''\n             previous_index = index"
+    },
+    {
+      "id": 136,
+      "line": 91,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -75,5 +75,5 @@\n             if not word:\n                 continue\n-            delimiter = separator * (index - previous_index) if words or first_word else ''\n+            delimiter = separator * (index - previous_index) if not (words or first_word) else ''\n             previous_index = index\n             first_word = False"
+    },
+    {
+      "id": 137,
+      "line": 93,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -77,5 +77,5 @@\n             delimiter = separator * (index - previous_index) if words or first_word else ''\n             previous_index = index\n-            first_word = False\n+            first_word = True\n             next_length = length + len(delimiter) + len(word)\n             if next_length <= max_length:"
+    },
+    {
+      "id": 138,
+      "line": 94,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -78,5 +78,5 @@\n             previous_index = index\n             first_word = False\n-            next_length = length + len(delimiter) + len(word)\n+            next_length = length + len(delimiter) - len(word)\n             if next_length <= max_length:\n                 words.append(delimiter + word)"
+    },
+    {
+      "id": 139,
+      "line": 95,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -79,5 +79,5 @@\n             first_word = False\n             next_length = length + len(delimiter) + len(word)\n-            if next_length <= max_length:\n+            if next_length < max_length:\n                 words.append(delimiter + word)\n                 length = next_length"
+    },
+    {
+      "id": 140,
+      "line": 96,
+      "kind": "call",
+      "diff": "--- original\n+++ mutant\n@@ -80,5 +80,5 @@\n             next_length = length + len(delimiter) + len(word)\n             if next_length <= max_length:\n-                words.append(delimiter + word)\n+                None\n                 length = next_length\n             elif save_order:"
+    },
+    {
+      "id": 141,
+      "line": 97,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -81,5 +81,5 @@\n             if next_length <= max_length:\n                 words.append(delimiter + word)\n-                length = next_length\n+                length = None\n             elif save_order:\n                 break"
+    },
+    {
+      "id": 142,
+      "line": 98,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -82,5 +82,5 @@\n                 words.append(delimiter + word)\n                 length = next_length\n-            elif save_order:\n+            elif not save_order:\n                 break\n         if words:"
+    },
+    {
+      "id": 143,
+      "line": 110,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -92,5 +92,5 @@\n         if not word:\n             continue\n-        delimiter = separator * (index - previous_index)\n+        delimiter = separator * (index + previous_index)\n         remaining = max_length - length - len(delimiter)\n         if remaining <= 0:"
+    },
+    {
+      "id": 144,
+      "line": 111,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -93,5 +93,5 @@\n             continue\n         delimiter = separator * (index - previous_index)\n-        remaining = max_length - length - len(delimiter)\n+        remaining = max_length + length - len(delimiter)\n         if remaining <= 0:\n             break"
+    },
+    {
+      "id": 145,
+      "line": 112,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -94,5 +94,5 @@\n         delimiter = separator * (index - previous_index)\n         remaining = max_length - length - len(delimiter)\n-        if remaining <= 0:\n+        if remaining <= 1:\n             break\n         parts.append(delimiter + word[:remaining])"
+    },
+    {
+      "id": 146,
+      "line": 114,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -96,5 +96,5 @@\n         if remaining <= 0:\n             break\n-        parts.append(delimiter + word[:remaining])\n+        parts.append(delimiter - word[:remaining])\n         length += len(delimiter) + min(len(word), remaining)\n         previous_index = index"
+    },
+    {
+      "id": 147,
+      "line": 176,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -135,5 +135,5 @@\n     text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)\n     if stopwords:\n-        excluded = {word.lower() if lowercase else word for word in stopwords}\n+        excluded = {word.lower() if not lowercase else word for word in stopwords}\n         text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded))\n     if rules and replacement_stage in ('both', 'post'):"
+    },
+    {
+      "id": 148,
+      "line": 33,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -24,5 +24,5 @@\n     \"\"\"Leave invalid references for ordinary filtering, independently of neighbors.\"\"\"\n     try:\n-        value = int(match.group(1), base)\n+        value = int(match.group(2), base)\n         if 55296 <= value <= 57343:\n             return match.group(0)"
+    },
+    {
+      "id": 149,
+      "line": 35,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -26,5 +26,5 @@\n         value = int(match.group(1), base)\n         if 55296 <= value <= 57343:\n-            return match.group(0)\n+            return match.group(1)\n         return chr(value)\n     except (ValueError, OverflowError):"
+    },
+    {
+      "id": 150,
+      "line": 38,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -29,5 +29,5 @@\n         return chr(value)\n     except (ValueError, OverflowError):\n-        return match.group(0)\n+        return match.group(1)\n \n def _decode_entities(text: str, entities: bool, decimal: bool, hexadecimal: bool) -> str:"
+    },
+    {
+      "id": 151,
+      "line": 59,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -47,5 +47,5 @@\n             module = import_module('unidecode')\n         except ModuleNotFoundError as error:\n-            if error.name != 'unidecode':\n+            if error.name == 'unidecode':\n                 raise\n             module = import_module('text_unidecode')"
+    },
+    {
+      "id": 152,
+      "line": 60,
+      "kind": "raise",
+      "diff": "--- original\n+++ mutant\n@@ -48,5 +48,5 @@\n         except ModuleNotFoundError as error:\n             if error.name != 'unidecode':\n-                raise\n+                pass\n             module = import_module('text_unidecode')\n     else:"
+    },
+    {
+      "id": 153,
+      "line": 65,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -52,5 +52,5 @@\n     else:\n         module = import_module(backend.replace('-', '_'))\n-    result: str = getattr(module, 'anyascii' if backend == 'anyascii' else 'unidecode')(text)\n+    result: str = getattr(module, 'anyascii' if backend != 'anyascii' else 'unidecode')(text)\n     return result\n "
+    },
+    {
+      "id": 154,
+      "line": 77,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -63,5 +63,5 @@\n     if max_length <= 0:\n         return text.replace(DEFAULT_SEPARATOR, separator)\n-    output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)\n+    output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 2)\n     if output_length <= max_length:\n         return text.replace(DEFAULT_SEPARATOR, separator)"
+    },
+    {
+      "id": 155,
+      "line": 91,
+      "kind": "boolop",
+      "diff": "--- original\n+++ mutant\n@@ -75,5 +75,5 @@\n             if not word:\n                 continue\n-            delimiter = separator * (index - previous_index) if words or first_word else ''\n+            delimiter = separator * (index - previous_index) if words and first_word else ''\n             previous_index = index\n             first_word = False"
+    },
+    {
+      "id": 156,
+      "line": 91,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -75,5 +75,5 @@\n             if not word:\n                 continue\n-            delimiter = separator * (index - previous_index) if words or first_word else ''\n+            delimiter = separator / (index - previous_index) if words or first_word else ''\n             previous_index = index\n             first_word = False"
+    },
+    {
+      "id": 157,
+      "line": 94,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -78,5 +78,5 @@\n             previous_index = index\n             first_word = False\n-            next_length = length + len(delimiter) + len(word)\n+            next_length = length - len(delimiter) + len(word)\n             if next_length <= max_length:\n                 words.append(delimiter + word)"
+    },
+    {
+      "id": 158,
+      "line": 99,
+      "kind": "loop",
+      "diff": "--- original\n+++ mutant\n@@ -83,5 +83,5 @@\n                 length = next_length\n             elif save_order:\n-                break\n+                continue\n         if words:\n             return ''.join(words)"
+    },
+    {
+      "id": 159,
+      "line": 177,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -136,5 +136,5 @@\n     if stopwords:\n         excluded = {word.lower() if lowercase else word for word in stopwords}\n-        text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded))\n+        text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if not word not in excluded))\n     if rules and replacement_stage in ('both', 'post'):\n         for old, new in rules:"
+    },
+    {
+      "id": 160,
+      "line": 45,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -35,5 +35,5 @@\n         text = CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(1)]), text)\n     if decimal:\n-        text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 10), text)\n+        text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 11), text)\n     if hexadecimal:\n         text = MODERN_HEX_PATTERN.sub(lambda m: _numeric_reference(m, 16), text)"
+    },
+    {
+      "id": 161,
+      "line": 47,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -37,5 +37,5 @@\n         text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 10), text)\n     if hexadecimal:\n-        text = MODERN_HEX_PATTERN.sub(lambda m: _numeric_reference(m, 16), text)\n+        text = MODERN_HEX_PATTERN.sub(lambda m: _numeric_reference(m, 17), text)\n     return text\n "
+    },
+    {
+      "id": 162,
+      "line": 91,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -75,5 +75,5 @@\n             if not word:\n                 continue\n-            delimiter = separator * (index - previous_index) if words or first_word else ''\n+            delimiter = separator * (index + previous_index) if words or first_word else ''\n             previous_index = index\n             first_word = False"
+    },
+    {
+      "id": 163,
+      "line": 96,
+      "kind": "arith",
+      "diff": "--- original\n+++ mutant\n@@ -80,5 +80,5 @@\n             next_length = length + len(delimiter) + len(word)\n             if next_length <= max_length:\n-                words.append(delimiter + word)\n+                words.append(delimiter - word)\n                 length = next_length\n             elif save_order:"
+    },
+    {
+      "id": 164,
+      "line": 177,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -136,5 +136,5 @@\n     if stopwords:\n         excluded = {word.lower() if lowercase else word for word in stopwords}\n-        text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded))\n+        text = DEFAULT_SEPARATOR.join((word for word in text.split(DEFAULT_SEPARATOR) if word in excluded))\n     if rules and replacement_stage in ('both', 'post'):\n         for old, new in rules:"
+    },
+    {
+      "id": 165,
       "line": 43,
-      "kind": "const"
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -33,5 +33,5 @@\n def _decode_entities(text: str, entities: bool, decimal: bool, hexadecimal: bool) -> str:\n     if entities:\n-        text = CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(1)]), text)\n+        text = CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(2)]), text)\n     if decimal:\n         text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 10), text)"
     }
   ],
   "mode": "baseline",
   "rounds": [
     {
       "round": 0,
-      "score": 54.23728813559322,
-      "killed": 64,
-      "survived": 54,
+      "score": 55.42168674698795,
+      "killed": 92,
+      "survived": 74,
       "accepted": true,
       "note": "baseline",
       "tokens_used": 0,
@@ -615,206 +1021,407 @@
         4,
         5,
         6,
-        17,
-        18,
-        19,
-        26,
-        27,
-        29,
+        22,
+        24,
         30,
-        31,
-        33,
-        34,
         37,
-        40,
-        41,
-        42,
+        38,
+        39,
+        44,
         45,
-        51,
+        46,
+        47,
+        49,
+        50,
         53,
-        54,
+        59,
+        60,
+        61,
+        62,
         63,
-        64,
         65,
-        66,
         67,
-        77,
-        78,
+        68,
+        70,
+        72,
         79,
         80,
-        82,
+        81,
+        83,
         84,
-        85,
-        87,
-        88,
-        89,
-        90,
         91,
+        94,
+        95,
+        96,
+        97,
         98,
         99,
-        100,
-        102,
-        103,
-        104,
-        105,
-        106,
-        107,
-        112,
+        111,
         113,
+        114,
+        115,
         116,
-        117
+        117,
+        118,
+        120,
+        121,
+        123,
+        124,
+        125,
+        128,
+        129,
+        130,
+        131,
+        132,
+        133,
+        143,
+        144,
+        145,
+        147,
+        148,
+        149,
+        150,
+        151,
+        152,
+        153,
+        159,
+        160,
+        161,
+        164,
+        165
       ],
       "triaged": []
     },
     {
       "round": 1,
-      "score": 80.50847457627118,
-      "killed": 95,
-      "survived": 23,
+      "score": 62.04819277108434,
+      "killed": 103,
+      "survived": 63,
       "accepted": true,
-      "note": "accepted: score improved (22 failing test(s) dropped) (1 repaired from real output)",
-      "tokens_used": 21515,
+      "note": "accepted: score improved (7 failing test(s) dropped)",
+      "tokens_used": 24044,
       "survivors": [
-        33,
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        22,
+        30,
         37,
-        51,
+        38,
+        39,
+        44,
+        45,
+        49,
+        50,
         53,
-        54,
-        63,
-        64,
-        65,
-        66,
-        67,
+        59,
+        60,
+        61,
+        68,
+        70,
+        79,
         80,
-        87,
-        88,
-        89,
-        91,
+        81,
+        83,
+        84,
+        94,
+        95,
+        96,
+        97,
         98,
-        102,
-        103,
-        104,
-        105,
-        106,
-        112,
-        113
+        99,
+        111,
+        113,
+        114,
+        115,
+        116,
+        117,
+        118,
+        123,
+        124,
+        125,
+        128,
+        129,
+        130,
+        131,
+        132,
+        133,
+        143,
+        144,
+        145,
+        147,
+        148,
+        149,
+        150,
+        151,
+        152,
+        153,
+        159,
+        160,
+        161,
+        164,
+        165
       ],
       "triaged": []
     },
     {
       "round": 2,
-      "score": 86.44067796610169,
-      "killed": 102,
-      "survived": 16,
+      "score": 66.26506024096386,
+      "killed": 110,
+      "survived": 56,
       "accepted": true,
-      "note": "accepted: score improved (3 repaired from real output)",
-      "tokens_used": 25111,
+      "note": "accepted: score improved (12 failing test(s) dropped) (2 repaired from real output)",
+      "tokens_used": 20415,
       "survivors": [
-        33,
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
         37,
-        51,
+        38,
+        39,
+        44,
+        45,
+        49,
+        50,
         53,
-        54,
-        64,
+        61,
+        62,
+        63,
+        65,
         67,
-        80,
-        88,
-        89,
+        68,
+        70,
+        72,
+        81,
+        83,
+        84,
         91,
+        94,
+        95,
+        96,
+        97,
         98,
-        102,
-        104,
-        105,
-        106
+        111,
+        114,
+        115,
+        117,
+        118,
+        120,
+        121,
+        123,
+        128,
+        129,
+        130,
+        131,
+        132,
+        133,
+        143,
+        147,
+        148,
+        149,
+        150,
+        151,
+        152,
+        153,
+        160,
+        161,
+        165
       ],
       "triaged": []
     },
     {
       "round": 3,
-      "score": 86.44067796610169,
-      "killed": 102,
-      "survived": 16,
-      "accepted": false,
-      "note": "rejected: no score improvement",
-      "tokens_used": 10940,
+      "score": 82.53012048192771,
+      "killed": 137,
+      "survived": 29,
+      "accepted": true,
+      "note": "accepted: score improved (3 failing test(s) dropped) (2 repaired from real output)",
+      "tokens_used": 20843,
       "survivors": [
-        33,
-        37,
-        51,
+        4,
+        22,
+        45,
+        49,
+        50,
         53,
-        54,
-        64,
-        67,
-        80,
-        88,
-        89,
-        91,
-        98,
-        102,
-        104,
-        105,
-        106
+        61,
+        65,
+        81,
+        83,
+        84,
+        94,
+        95,
+        96,
+        97,
+        111,
+        115,
+        117,
+        118,
+        121,
+        124,
+        125,
+        128,
+        129,
+        133,
+        143,
+        149,
+        150,
+        152
       ],
       "triaged": []
     },
     {
       "round": 4,
-      "score": 86.44067796610169,
-      "killed": 102,
-      "survived": 16,
-      "accepted": false,
-      "note": "rejected: no score improvement",
-      "tokens_used": 30051,
+      "score": 86.144578313253,
+      "killed": 143,
+      "survived": 23,
+      "accepted": true,
+      "note": "accepted: score improved (2 failing test(s) dropped) (3 repaired from real output)",
+      "tokens_used": 24533,
       "survivors": [
-        33,
-        37,
-        51,
+        49,
+        50,
         53,
-        54,
-        64,
-        67,
-        80,
-        88,
-        89,
-        91,
-        98,
-        102,
-        104,
-        105,
-        106
+        65,
+        81,
+        83,
+        84,
+        94,
+        95,
+        96,
+        97,
+        111,
+        115,
+        117,
+        118,
+        121,
+        125,
+        128,
+        129,
+        133,
+        149,
+        150,
+        152
       ],
       "triaged": []
     },
     {
       "round": 5,
-      "score": 86.44067796610169,
-      "killed": 102,
-      "survived": 16,
+      "score": 86.144578313253,
+      "killed": 143,
+      "survived": 23,
       "accepted": false,
       "note": "rejected: no score improvement",
-      "tokens_used": 10771,
+      "tokens_used": 38110,
       "survivors": [
-        33,
-        37,
-        51,
+        49,
+        50,
         53,
-        54,
-        64,
-        67,
-        80,
-        88,
-        89,
-        91,
-        98,
-        102,
-        104,
-        105,
-        106
+        65,
+        81,
+        83,
+        84,
+        94,
+        95,
+        96,
+        97,
+        111,
+        115,
+        117,
+        118,
+        121,
+        125,
+        128,
+        129,
+        133,
+        149,
+        150,
+        152
+      ],
+      "triaged": []
+    },
+    {
+      "round": 6,
+      "score": 86.144578313253,
+      "killed": 143,
+      "survived": 23,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 10569,
+      "survivors": [
+        49,
+        50,
+        53,
+        65,
+        81,
+        83,
+        84,
+        94,
+        95,
+        96,
+        97,
+        111,
+        115,
+        117,
+        118,
+        121,
+        125,
+        128,
+        129,
+        133,
+        149,
+        150,
+        152
       ],
       "triaged": []
     }
   ],
   "explanations": {},
+  "attempts": [
+    {
+      "attempt": 1,
+      "final_score": 84.93975903614458,
+      "tokens_used": 148547,
+      "kept": false
+    },
+    {
+      "attempt": 2,
+      "final_score": 86.144578313253,
+      "tokens_used": 138514,
+      "kept": true
+    },
+    {
+      "attempt": 3,
+      "final_score": 82.53012048192771,
+      "tokens_used": 76567,
+      "kept": false
+    }
+  ],
+  "initial_coverage": 75.6,
+  "final_coverage": 94.1,
+  "trimmed": {
+    "before": 28,
+    "after": 13,
+    "note": "trimmed"
+  },
+  "docs_lookups": [
+    {
+      "name": "slugify",
+      "query": "python python-slugify slugify documentation behaviour examples",
+      "urls": [
+        "https://stackoverflow.com/questions/5574042/string-slugification-in-python",
+        "https://github.com/un33k/python-slugify/blob/master/slugify/slugify.py",
+        "https://www.npmjs.com/package/@sindresorhus/slugify",
+        "https://leancrew.com/all-this/2023/08/slugify-slight-return"
+      ]
+    }
+  ],
   "models": {
     "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
     "strong": "nvidia/nemotron-3-super-120b-a12b"

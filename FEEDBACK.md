@@ -14,7 +14,7 @@ I built mutagent alone over about two weeks: an agent that writes pytest tests w
 
 ### What worked well
 - **The OpenAI-compatible API worked unchanged** with the official `openai` Python client: only the base URL and the key changed. Moving from a local fake model to real Nemotron calls took minutes.
-- **Prices are low enough to experiment freely.** A full recording of my demo (8 agent and baseline runs, about 780,000 tokens, mostly Nemotron 3 Super) cost roughly $0.30-0.50. Single runs used 8,000-190,000 tokens.
+- **Prices are low enough to experiment freely.** My whole development, including all recordings, cost $1.49 in model usage up to October 17 by the Usage page. The final recording (8 agent and baseline runs, each the best of 3 attempts) used about 2 million tokens, mostly Nemotron 3 Super. Single runs used 8,000-190,000 tokens per attempt.
 - **Both tiers in one place**: Nemotron 3 Super for the heavy work and Nemotron 3 Nano for cheap helper calls, behind the same key.
 - I saw no rate-limit errors during development, including long sequential runs.
 
@@ -38,19 +38,27 @@ I built mutagent alone over about two weeks: an agent that writes pytest tests w
 
 ## Token Factory Sandboxes
 
+### What worked well
+- **It worked on the first real try.** The SDK's sync client is thread-safe, so I could run one sandbox per planted bug, 16 at a time. A whole scoring pass of 166 mutants ran in parallel, and the results matched my local runs exactly.
+- **Files can be attached to a run** (`image.run(..., files={path: bytes})`), so uploading only the changed files on top of a prepared image kept every run small.
+- **A non-disposable run becomes a new image**, which made "Python + pytest + the project" a one-time setup per run.
+
+### Friction and suggestions
+
 | What I did | What happened | Suggestion |
 |---|---|---|
 | Read the hackathon page | The Coding and Agentic Engineering track describes "agents that write, run, and test code in Token Factory", but the hackathon Resources page does not mention Sandboxes at all | Link the Sandboxes docs from the track description and the Resources page |
 | Tried to get access | Sandboxes is in beta. The access page says a project may show `inactive` and to email contree@nebius.com with the project ID; there is no self-serve switch. I emailed and got an "access is active" reply (the welcome email arrived first and did not mention Sandboxes) | Activate Sandboxes automatically for hackathon participants, or add a request button in the console that shows the request status |
+| Read the cost of a run | Each result has a `cost` field (about 0.007 per run for me), but I could not find its unit or where sandbox usage appears on the billing page | Name the unit in the SDK docs and show sandbox usage as its own line on the Usage page |
 | Read the Python SDK reference to plan the integration | Files can be uploaded (`upload`, `upload_bytes_file`), but the docs do not say how an uploaded file is attached to a run. I found it by reading the SDK source: `image.run(..., files={"/path/in/image": bytes})` and `image.apply_files(...)` | Add a recipe "upload a project folder and run pytest in it", which is exactly what coding agents need |
 
 ## NVIDIA Nemotron models
 
 ### Nemotron 3 Super (writing tests)
-- **Good at the actual task.** Given the source and the surviving mutants as diffs, it regularly wrote tests that caught most of them. It took a toy module from 37.8% to 97.3% and cachetools `_cached.py` from 23.8% to 96.2%.
+- **Good at the actual task.** Given the source and the surviving mutants as diffs, it regularly wrote tests that caught most of them. In the final recording it took a toy module from 34.1% to 97.6%, cachetools `func.py` from 89.7% to 98.3% and python-slugify from 55.4% to 89.8% of planted bugs caught.
 - **Common failure: wrong expected values.** It often guessed what a function returns instead of reading it (for example `'Ss'` vs `'ß'`, `info.miss` vs `info.misses`, `IOError` vs `IoError`). Giving it the real pytest output of its failed tests fixed most of these in one repair call. That repair step became the single biggest improvement in my agent.
 - **It tried to "call the mutant" inside a test** (asserting what the mutated code would return) until the prompt said explicitly that tests only ever run against the real code.
-- **Output-format slips** I had to handle: code blocks that were opened but never closed, replies with no code block at all, and long think-aloud comments ("Wait... Actually...") inside the test file.
+- **Output-format slips** I had to handle: code blocks that were opened but never closed, replies with no code block at all, and long think-aloud comments ("Wait... Actually...") inside the test file. In the final recording (8 runs, 24 attempts, 109 rounds), 16 replies were not valid Python (unclosed strings, `b"ü"`, stray parentheses), and 3 of those were still invalid after one repair request. One kept test file contained 34 lines of reasoning as comments; I now strip such blocks automatically.
 - **Mutating shared state**: some tests cleared module-level registries (`PLURALS.clear()`), which broke the library's own tests. A prompt rule fixed it.
 
 ### Nemotron 3 Nano (helper calls)
@@ -64,7 +72,7 @@ I built mutagent alone over about two weeks: an agent that writes pytest tests w
 ## Tavily
 
 - **Worked on the first try**: plain HTTPS `POST /search` with a Bearer key, clear docs, useful `include_answer`.
-- **For real libraries the results were exactly right**: lookups for cachetools functions returned `cachetools.readthedocs.io` pages.
+- **For real libraries the results were mostly right**: lookups for cachetools functions returned `cachetools.readthedocs.io` pages first, but also Medium, GeeksforGeeks and gist pages, and a lookup for one function sometimes returned docs for an older major version (`v4.2.4`).
 - **For generic function names the results were off-topic** (a toy `apply_discount` returned Stripe and freeCodeCamp pages). I now drop results that don't mention the package. A "documentation of package X" mode, or a documented `include_domains` recipe for Read the Docs, PyPI and GitHub, would make this easier for coding agents.
 
 ## Hosting the demo

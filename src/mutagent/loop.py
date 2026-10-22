@@ -350,6 +350,38 @@ def collection_failed(output: str) -> bool:
     return bool(_COLLECTION.search(output))
 
 
+def tidy_code(code: str) -> str:
+    """Remove the model's think-aloud: blocks of 3+ full-line comments, and runs of blank lines.
+
+    Only comments and blank lines go, so the tests themselves cannot change; this is
+    checked by comparing the syntax trees, and the original is returned if they differ.
+    """
+    lines = code.splitlines()
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if lines[i].strip().startswith("#"):
+            j = i
+            while j < len(lines) and lines[j].strip().startswith("#"):
+                j += 1
+            if j - i < 3:
+                out.extend(lines[i:j])
+            i = j
+            continue
+        if not lines[i].strip() and len(out) >= 2 and not out[-1].strip() and not out[-2].strip():
+            i += 1
+            continue
+        out.append(lines[i])
+        i += 1
+    tidied = "\n".join(out).strip() + "\n"
+    try:
+        if ast.dump(ast.parse(tidied)) != ast.dump(ast.parse(code)):
+            return code
+    except SyntaxError:
+        return code
+    return tidied
+
+
 def syntax_problem(code: str) -> str | None:
     """A one-line description of a syntax error in ``code``, or None if it parses."""
     try:
@@ -860,6 +892,9 @@ def _run(
         report.trimmed = {"before": trim.before, "after": trim.after, "note": trim.note}
         if trim.after == trim.before:
             log(f"kept all {trim.before} new tests: {trim.note}")
+    if current:
+        current = tidy_code(current)
+        restore()
     report.final_score = best
     report.generated_code = current
     if current == start_code:

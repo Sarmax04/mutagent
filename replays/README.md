@@ -14,11 +14,11 @@ The baseline file is the comparison: the same loop, model and acceptance rule, b
 Record everything from **real** runs (never hand-edit a recording or fill it from a fake model, because judges will read it as evidence):
 
 ```bash
-python scripts/record.py                  # all four presets, agent run + baseline (up to 6 rounds)
-python scripts/record.py cachetools-func  # just one preset
-python scripts/record.py --triage         # also let the small FAST model set aside likely-unkillable bugs
+python scripts/record.py --docs --attempts 3 --sandbox                  # how the current recordings were made
+python scripts/record.py cachetools-func --docs --attempts 3 --sandbox  # just one preset
+python scripts/record.py                                                # locally, one attempt, no docs
 ```
 
-Run it from the repository root with `.env` filled in. The slow presets (`inflection`, `slugify`) take several minutes because every round re-scores more than a hundred planted bugs.
+Run it from the repository root with `.env` filled in (`NEBIUS_PROJECT_ID` for `--sandbox`, `TAVILY_API_KEY` for `--docs`). With `--sandbox` the planted bugs are tested in parallel; locally the slow presets (`inflection`, `slugify`) take several minutes per round. The current recordings (October 22) took about 2 million tokens in total.
 
 Each report holds the score per round, which planted bugs were still alive after each round, the tests the agent kept, token counts, the small model's one-line explanation of each bug that survived, the bugs it set aside as unkillable (only with `--triage`) and the model names.

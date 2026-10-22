@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -181,7 +182,10 @@ def generate_mutants(source: str, lines: set[int] | None = None) -> list[Mutant]
     ``lines`` restricts the mutants to those source lines (for example the lines a pull
     request changed); ids are then numbered 0..n-1 again.
     """
-    tree = ast.parse(source)
+    with warnings.catch_warnings():
+        # the module's own invalid escapes ("\&") are not our problem; keep the log clean
+        warnings.simplefilter("ignore", SyntaxWarning)
+        tree = ast.parse(source)
     base_lines = ast.unparse(tree).splitlines()
     mutants: list[Mutant] = []
     for i in range(len(_sites(tree))):

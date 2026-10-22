@@ -204,27 +204,28 @@ mutagent scan --project . --discover --min-score 85 --fix
 
 ## Results
 
-Real runs against Nebius Token Factory with NVIDIA Nemotron models, recorded with `python scripts/record.py` (up to 6 rounds, stop after 3 rounds without progress). Each row compares the survivor-guided agent with the baseline: the same loop, model, repair steps and acceptance rule, but the model is never told which bugs survive. These recordings are the ones the web demo plays. They were made with the earlier set of 7 kinds of planted bugs, so their mutant counts are lower than what `mutagent score` reports today.
+Real runs against Nebius Token Factory with NVIDIA Nemotron models, recorded with `python scripts/record.py --docs --attempts 3 --sandbox`: all 12 kinds of planted bugs, up to 6 rounds, stop after 3 rounds without progress, the best of 3 attempts, documentation lookups with Tavily (the toy module has no published docs, so it gets none), every test run in Nebius Token Factory Sandboxes, and the final tests trimmed with `--minimize`. Each row compares the survivor-guided agent with the baseline: the same loop, model, attempts, docs, repair steps and acceptance rule, but the model is never told which bugs survive. These recordings are the ones the web demo plays.
 
-| Target | Mutants | Score before | No bug feedback (same model) | Agent (guided) | Rounds | Tokens: agent / baseline |
-|---|---|---|---|---|---|---|
-| `examples/demo_project/pricing.py` | 37 | 37.8% | 97.3% | 97.3% | 4 | 28,334 / 30,888 |
-| cachetools `func.py` | 55 | 89.1% | 98.2% | 98.2% | 4 | 44,364 / 99,778 |
-| python-slugify `slugify.py` | 118 | 54.2% | **86.4%** | 81.4% | 4 | 96,638 / 98,388 |
-| inflection `__init__.py` | 108 | 88.9% | 88.9% | **92.6%** | 6 | 138,919 / 76,330 |
-
-The full recording before it (same settings, one bug-fix release earlier) gave: pricing 94.6% vs 94.6%, cachetools 96.4% (agent) vs 98.2% (baseline), slugify **90.7%** vs 88.1%, inflection **91.7%** vs 88.9%.
+| Target | Planted bugs | Score before | No bug feedback (same model) | Agent (guided) | Line coverage (agent) | Tests kept (agent) | Tokens: agent / baseline |
+|---|---|---|---|---|---|---|---|
+| `examples/demo_project/pricing.py` | 41 | 34.1% | 95.1% | **97.6%** | 64.7% → 100% | 7 of 10 | 112,648 / 84,802 |
+| cachetools `func.py` | 58 | 89.7% | 89.7% | **98.3%** | 100% → 100% | 5 of 19 | 192,469 / 149,539 |
+| python-slugify `slugify.py` | 166 | 55.4% | 86.1% | **89.8%** | 75.6% → 95.6% | 15 of 40 | 479,203 / 363,628 |
+| inflection `__init__.py` | 131 | 90.8% | 90.8% | **95.4%** | 98.8% → 98.8% | 2 of 11 | 349,035 / 323,284 |
 
 What this shows, honestly:
 
-- **The loop works.** Every agent run raised the score and every kept test passes on the real code: pricing 37.8% to 97.3%, slugify 54.2% to 81-91%, cachetools 89.1% to 96-98%.
-- **Survivor feedback gives a small, noisy edge, not a guaranteed one.** Over the two recordings (8 head-to-head runs) the guided agent was ahead 3 times, tied 3 times and behind 2 times. Single runs swing by several points (slugify: 90.7% in one recording, 81.4% in the next), so with this few runs I can't claim it beats a baseline that already has the same repair loop.
-- **It is usually cheaper.** The guided agent used fewer tokens in 6 of the 8 runs (651k vs 738k in total).
-- The bugs that stay alive are a mix of hard ones and equivalent mutants (changes no test can detect). The small model's explanation of each is in the report and on the demo page; I did not verify every one by hand.
+- **The loop works.** Every agent run raised the score, and every kept test passes on the real code. On cachetools the baseline could not raise the score in any of its 3 attempts; the agent did in all 3, because the surviving bugs pointed it at default arguments the shipped tests never check.
+- **This time survivor feedback won every comparison**, by 2.4 to 8.6 points. Earlier recordings (one attempt each, 7 kinds of planted bugs, no docs) were mixed: over 8 head-to-head runs the agent was ahead 3 times, tied 3 times and behind 2 times. Single runs swing by several points, and best-of-3 smooths that out, so I read it as a real but modest edge, not a guarantee.
+- **It costs more tokens.** The agent used more tokens in all 4 comparisons (1.13M vs 0.92M, about 23% more), because each prompt carries the surviving bugs as diffs. The whole recording, agent and baseline, used about 2.05M tokens.
+- **Coverage hides the gap.** cachetools and inflection were at 100% and 98.8% line coverage before and after; only the mutation score moved.
+- **Trimming matters.** The agent keeps whole rounds of tests while the score rises; `--minimize` then removed between 30% and 82% of them without losing a single caught bug.
+- **Nemotron's raw output needed a lot of guarding.** Across the 8 recorded runs (24 attempts), 16 replies were not valid Python and 6 rounds produced tests that failed on the real code; the one-time repair from real pytest output rescued failing tests 58 times. Only 36 of 109 rounds raised the score; the rest changed nothing.
+- The bugs that stay alive are a mix of hard ones and equivalent mutants (changes no test can detect, such as `<= 5` vs `< 5` where both branches give the same price). The small model's explanation of each is in the report and on the demo page; I did not verify every one by hand.
 
 ### More modules (`mutagent scan --fix`)
 
-The same agent, no per-module tuning, on modules the shipped tests barely touch:
+The same agent, no per-module tuning, on modules the shipped tests barely touch (single attempts, measured with the earlier 7 kinds of planted bugs):
 
 | Module | Mutants | Before | After | Tokens |
 |---|---|---|---|---|

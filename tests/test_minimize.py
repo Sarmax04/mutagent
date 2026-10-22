@@ -52,3 +52,20 @@ def test_loop_trims_redundant_tests_without_losing_score(project):
     assert "test_discount_again" not in trimmed.generated_code or "TestShippingAgain" not in trimmed.generated_code
     assert len(names_in(trimmed.generated_code)) == trimmed.trimmed["after"]
     assert full.trimmed == {}
+
+
+def test_tidy_code_drops_think_aloud_but_keeps_tests():
+    from mutagent.loop import tidy_code
+
+    code = (
+        "import pytest\n\n\n\n\ndef test_a():\n    # one short note stays\n    assert 1 == 1\n\n"
+        "# Let me re-read the mutant...\n# Actually, wait.\n# Indeed the behaviour is identical.\n\n\n\n"
+        "def test_b():\n    assert 2 == 2\n"
+    )
+    tidied = tidy_code(code)
+    assert "Actually" not in tidied and "one short note stays" in tidied
+    assert "\n\n\n\n" not in tidied
+    assert "def test_a" in tidied and "def test_b" in tidied
+    assert tidy_code("def broken(:\n") == "def broken(:\n"
+    strings = 'X = """\n# a\n# b\n# c\n"""\n\ndef test_x():\n    assert X\n'
+    assert tidy_code(strings) == strings  # comment-looking lines inside a string are kept

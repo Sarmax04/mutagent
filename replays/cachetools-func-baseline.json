@@ -1,380 +1,502 @@
 {
   "target": "src/cachetools/func.py",
-  "mutant_count": 55,
-  "initial_score": 89.0909090909091,
-  "final_score": 98.18181818181819,
-  "tokens_used": 99778,
+  "mutant_count": 58,
+  "initial_score": 89.65517241379311,
+  "final_score": 89.65517241379311,
+  "tokens_used": 149539,
   "generated_path": null,
-  "generated_code": "import pytest\nimport time\nfrom datetime import datetime, timedelta\n\nfrom cachetools.func import (\n    fifo_cache,\n    lfu_cache,\n    lru_cache,\n    rr_cache,\n    ttl_cache,\n)\n\n\n@pytest.mark.parametrize(\n    \"decorator,cache_type,expected_maxsize\",\n    [\n        (fifo_cache, \"FIFOCache\", 128),\n        (lfu_cache, \"LFUCache\", 128),\n        (lru_cache, \"LRUCache\", 128),\n        (rr_cache, \"RRCache\", 128),\n        (ttl_cache, \"TTLCache\", 128),\n    ],\n)\ndef test_default_maxsize_and_type(decorator, cache_type, expected_maxsize):\n    wrapped = decorator()(lambda x: x)\n    params = wrapped.cache_parameters()\n    assert params[\"maxsize\"] == expected_maxsize\n    assert params[\"typed\"] is False\n    info = wrapped.cache_info()\n    assert info.hits == 0\n    assert info.misses == 0\n    assert info.maxsize == expected_maxsize\n    assert info.currsize == 0\n\n\ndef test_fifo_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        fifo_cache(maxsize=-1)\n\n\ndef test_lfu_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        lfu_cache(maxsize=-1)\n\n\ndef test_lru_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        lru_cache(maxsize=-1)\n\n\ndef test_rr_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        rr_cache(maxsize=-1)\n\n\ndef test_ttl_cache_invalid_maxsize():\n    with pytest.raises(ValueError):\n        ttl_cache(maxsize=-1)\n\n\ndef test_rr_cache_custom_choice():\n    def my_choice(seq):\n        return seq[0]\n\n    wrapped = rr_cache(maxsize=2, choice=my_choice)(lambda x: x)\n    assert wrapped(1) == 1\n    assert wrapped(2) == 2\n    assert wrapped(1) == 1  # hit\n    assert wrapped(3) == 3  # miss, should evict one of the existing\n    info = wrapped.cache_info()\n    assert info.hits == 1\n    assert info.misses == 3\n\n\ndef test_fifo_cache_with_none_is_uncached():\n    wrapped = fifo_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_lfu_cache_with_none_is_uncached():\n    wrapped = lfu_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_lru_cache_with_none_is_uncached():\n    wrapped = lru_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_rr_cache_with_none_is_uncached():\n    wrapped = rr_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_ttl_cache_with_none_uses_unbound_ttl():\n    wrapped = ttl_cache(maxsize=None)(lambda x: x)\n    assert wrapped.cache_parameters()[\"maxsize\"] is None\n    info = wrapped.cache_info()\n    assert info.maxsize is None\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.hits == 1\n\n\ndef test_ttl_cache_timer_callable_used():\n    class MockTimer:\n        def __init__(self):\n            self.value = 100\n\n        def __call__(self):\n            return self.value\n\n    timer = MockTimer()\n    wrapped = ttl_cache(maxsize=2, ttl=50, timer=timer)(lambda x: x)\n    assert wrapped(1) == 1  # miss, stored at time 100\n    assert wrapped(1) == 1  # hit (within ttl)\n    timer.value = 200  # advance time to 200\n    assert wrapped(1) == 1  # still within ttl? 200 - 100 = 100 > 50, should be expired\n    # Actually, after time advances to 200, the entry is expired, so this should be a miss\n    # But the function returns cached value only if not expired\n    # Let's check actual behavior by looking at cache_info\n    info = wrapped.cache_info()\n    # First call: miss\n    # Second call: hit (time 100 -> 100, diff 0 < 50)\n    # Third call: time advanced to 200, call with arg 1: since 200 - 100 = 100 >= 50, expired -> miss\n    # So we expect 2 misses, 1 hit\n    assert info.misses == 2\n    assert info.hits == 1\n\n\ndef test_ttl_cache_zero_ttl_immediate_expiry():\n    wrapped = ttl_cache(maxsize=2, ttl=0)(lambda x: x)\n    assert wrapped(1) == 1  # miss\n    info = wrapped.cache_info()\n    assert info.misses == 1\n    assert info.hits == 0\n    assert wrapped(1) == 1  # again, ttl=0 means immediate expiry, so miss\n    info = wrapped.cache_info()\n    assert info.misses == 2\n    assert info.hits == 0\n\n\n@pytest.mark.parametrize(\n    \"decorator\",\n    [fifo_cache, lfu_cache, lru_cache, rr_cache, ttl_cache],\n)\ndef test_typed_argument_passed_through(decorator):\n    wrapped = decorator(maxsize=2, typed=True)(lambda x: x)\n    assert wrapped.cache_parameters()[\"typed\"] is True\n    wrapped2 = decorator(maxsize=2, typed=False)(lambda x: x)\n    assert wrapped2.cache_parameters()[\"typed\"] is False\n\n\ndef test_cache_key_uses_typedkey_when_typed_true():\n    wrapped = lru_cache(maxsize=2, typed=True)(lambda x: x)\n    assert wrapped(1) == 1\n    assert wrapped(1.0) == 1.0  # different due to typing\n    info = wrapped.cache_info()\n    assert info.misses == 2\n    assert info.hits == 0\n    assert wrapped(1) == 1\n    info = wrapped.cache_info()\n    assert info.misses == 2\n    assert info.hits == 1\n    assert wrapped(1.0) == 1.0\n    info = wrapped.cache_info()\n    assert info.misses == 2\n    assert info.hits == 2\n\n\ndef test_ttl_cache_datetime():\n    cached = ttl_cache(maxsize=2, ttl=timedelta(days=1), timer=datetime.now)(\n        lambda n: n\n    )\n    assert cached.cache_parameters() == {\"maxsize\": 2, \"typed\": False}\n    assert cached.cache_info() == (0, 0, 2, 0)\n    assert cached(1) == 1\n    assert cached.cache_info() == (0, 1, 2, 1)\n    assert cached(1) == 1\n    assert cached.cache_info() == (1, 1, 2, 1)\n    assert cached(1.0) == 1.0\n    assert cached.cache_info() == (2, 1, 2, 1)\n",
+  "generated_code": "",
   "mutants": [
     {
       "id": 0,
       "line": 32,
-      "kind": "return"
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -23,5 +23,5 @@\n         wrapper.cache_parameters = lambda: {'maxsize': maxsize, 'typed': typed}\n         return wrapper\n-    return decorator\n+    return None\n \n def fifo_cache(maxsize=128, typed=False):"
     },
     {
       "id": 1,
       "line": 41,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -31,5 +31,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if not maxsize is None:\n         return _cache({}, None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 2,
       "line": 55,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -44,5 +44,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if not maxsize is None:\n         return _cache({}, None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 3,
       "line": 69,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -57,5 +57,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if not maxsize is None:\n         return _cache({}, None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 4,
       "line": 83,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -70,5 +70,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if not maxsize is None:\n         return _cache({}, None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 5,
       "line": 97,
-      "kind": "negate"
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -83,5 +83,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if not maxsize is None:\n         return _cache(_UnboundTTLCache(ttl, timer), None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 6,
-      "line": 30,
-      "kind": "return"
+      "line": 15,
+      "kind": "call",
+      "diff": "--- original\n+++ mutant\n@@ -10,5 +10,5 @@\n \n     def __init__(self, ttl, timer):\n-        TTLCache.__init__(self, math.inf, ttl, timer)\n+        None\n \n     @property"
     },
     {
       "id": 7,
-      "line": 35,
-      "kind": "const"
+      "line": 27,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -19,5 +19,5 @@\n \n     def decorator(func):\n-        key = keys.typedkey if typed else keys.hashkey\n+        key = None\n         wrapper = cached(cache=cache, key=key, condition=Condition(), info=True)(func)\n         wrapper.cache_parameters = lambda: {'maxsize': maxsize, 'typed': typed}"
     },
     {
       "id": 8,
-      "line": 35,
-      "kind": "const"
+      "line": 28,
+      "kind": "assign",
+      "diff": "--- original\n+++ mutant\n@@ -20,5 +20,5 @@\n     def decorator(func):\n         key = keys.typedkey if typed else keys.hashkey\n-        wrapper = cached(cache=cache, key=key, condition=Condition(), info=True)(func)\n+        wrapper = None\n         wrapper.cache_parameters = lambda: {'maxsize': maxsize, 'typed': typed}\n         return wrapper"
     },
     {
       "id": 9,
-      "line": 41,
-      "kind": "compare"
+      "line": 30,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -22,5 +22,5 @@\n         wrapper = cached(cache=cache, key=key, condition=Condition(), info=True)(func)\n         wrapper.cache_parameters = lambda: {'maxsize': maxsize, 'typed': typed}\n-        return wrapper\n+        return None\n     return decorator\n "
     },
     {
       "id": 10,
-      "line": 42,
-      "kind": "return"
+      "line": 35,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -25,5 +25,5 @@\n     return decorator\n \n-def fifo_cache(maxsize=128, typed=False):\n+def fifo_cache(maxsize=129, typed=False):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a First In First Out (FIFO)"
     },
     {
       "id": 11,
-      "line": 43,
-      "kind": "negate"
+      "line": 35,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -25,5 +25,5 @@\n     return decorator\n \n-def fifo_cache(maxsize=128, typed=False):\n+def fifo_cache(maxsize=128, typed=True):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a First In First Out (FIFO)"
     },
     {
       "id": 12,
-      "line": 49,
-      "kind": "const"
+      "line": 41,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -31,5 +31,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if maxsize is not None:\n         return _cache({}, None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 13,
-      "line": 49,
-      "kind": "const"
+      "line": 42,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -32,5 +32,5 @@\n     \"\"\"\n     if maxsize is None:\n-        return _cache({}, None, typed)\n+        return None\n     elif callable(maxsize):\n         return _cache(FIFOCache(128), 128, typed)(maxsize)"
     },
     {
       "id": 14,
-      "line": 55,
-      "kind": "compare"
+      "line": 43,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -33,5 +33,5 @@\n     if maxsize is None:\n         return _cache({}, None, typed)\n-    elif callable(maxsize):\n+    elif not callable(maxsize):\n         return _cache(FIFOCache(128), 128, typed)(maxsize)\n     else:"
     },
     {
       "id": 15,
-      "line": 56,
-      "kind": "return"
+      "line": 49,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -38,5 +38,5 @@\n         return _cache(FIFOCache(maxsize), maxsize, typed)\n \n-def lfu_cache(maxsize=128, typed=False):\n+def lfu_cache(maxsize=129, typed=False):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a Least Frequently Used (LFU)"
     },
     {
       "id": 16,
-      "line": 57,
-      "kind": "negate"
+      "line": 49,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -38,5 +38,5 @@\n         return _cache(FIFOCache(maxsize), maxsize, typed)\n \n-def lfu_cache(maxsize=128, typed=False):\n+def lfu_cache(maxsize=128, typed=True):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a Least Frequently Used (LFU)"
     },
     {
       "id": 17,
-      "line": 63,
-      "kind": "const"
+      "line": 55,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -44,5 +44,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if maxsize is not None:\n         return _cache({}, None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 18,
-      "line": 63,
-      "kind": "const"
+      "line": 56,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -45,5 +45,5 @@\n     \"\"\"\n     if maxsize is None:\n-        return _cache({}, None, typed)\n+        return None\n     elif callable(maxsize):\n         return _cache(LFUCache(128), 128, typed)(maxsize)"
     },
     {
       "id": 19,
-      "line": 69,
-      "kind": "compare"
+      "line": 57,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -46,5 +46,5 @@\n     if maxsize is None:\n         return _cache({}, None, typed)\n-    elif callable(maxsize):\n+    elif not callable(maxsize):\n         return _cache(LFUCache(128), 128, typed)(maxsize)\n     else:"
     },
     {
       "id": 20,
-      "line": 70,
-      "kind": "return"
+      "line": 63,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -51,5 +51,5 @@\n         return _cache(LFUCache(maxsize), maxsize, typed)\n \n-def lru_cache(maxsize=128, typed=False):\n+def lru_cache(maxsize=129, typed=False):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a Least Recently Used (LRU)"
     },
     {
       "id": 21,
-      "line": 71,
-      "kind": "negate"
+      "line": 63,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -51,5 +51,5 @@\n         return _cache(LFUCache(maxsize), maxsize, typed)\n \n-def lru_cache(maxsize=128, typed=False):\n+def lru_cache(maxsize=128, typed=True):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a Least Recently Used (LRU)"
     },
     {
       "id": 22,
-      "line": 77,
-      "kind": "const"
+      "line": 69,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -57,5 +57,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if maxsize is not None:\n         return _cache({}, None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 23,
-      "line": 77,
-      "kind": "const"
+      "line": 70,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -58,5 +58,5 @@\n     \"\"\"\n     if maxsize is None:\n-        return _cache({}, None, typed)\n+        return None\n     elif callable(maxsize):\n         return _cache(LRUCache(128), 128, typed)(maxsize)"
     },
     {
       "id": 24,
-      "line": 83,
-      "kind": "compare"
+      "line": 71,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -59,5 +59,5 @@\n     if maxsize is None:\n         return _cache({}, None, typed)\n-    elif callable(maxsize):\n+    elif not callable(maxsize):\n         return _cache(LRUCache(128), 128, typed)(maxsize)\n     else:"
     },
     {
       "id": 25,
-      "line": 84,
-      "kind": "return"
+      "line": 77,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -64,5 +64,5 @@\n         return _cache(LRUCache(maxsize), maxsize, typed)\n \n-def rr_cache(maxsize=128, choice=random.choice, typed=False):\n+def rr_cache(maxsize=129, choice=random.choice, typed=False):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a Random Replacement (RR)"
     },
     {
       "id": 26,
-      "line": 85,
-      "kind": "negate"
+      "line": 77,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -64,5 +64,5 @@\n         return _cache(LRUCache(maxsize), maxsize, typed)\n \n-def rr_cache(maxsize=128, choice=random.choice, typed=False):\n+def rr_cache(maxsize=128, choice=random.choice, typed=True):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a Random Replacement (RR)"
     },
     {
       "id": 27,
-      "line": 91,
-      "kind": "const"
+      "line": 83,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -70,5 +70,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if maxsize is not None:\n         return _cache({}, None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 28,
-      "line": 91,
-      "kind": "const"
+      "line": 84,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -71,5 +71,5 @@\n     \"\"\"\n     if maxsize is None:\n-        return _cache({}, None, typed)\n+        return None\n     elif callable(maxsize):\n         return _cache(RRCache(128, choice), 128, typed)(maxsize)"
     },
     {
       "id": 29,
-      "line": 91,
-      "kind": "const"
+      "line": 85,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -72,5 +72,5 @@\n     if maxsize is None:\n         return _cache({}, None, typed)\n-    elif callable(maxsize):\n+    elif not callable(maxsize):\n         return _cache(RRCache(128, choice), 128, typed)(maxsize)\n     else:"
     },
     {
       "id": 30,
-      "line": 97,
-      "kind": "compare"
+      "line": 91,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -77,5 +77,5 @@\n         return _cache(RRCache(maxsize, choice), maxsize, typed)\n \n-def ttl_cache(maxsize=128, ttl=600, timer=time.monotonic, typed=False):\n+def ttl_cache(maxsize=129, ttl=600, timer=time.monotonic, typed=False):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a Least Recently Used (LRU)"
     },
     {
       "id": 31,
-      "line": 98,
-      "kind": "return"
+      "line": 91,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -77,5 +77,5 @@\n         return _cache(RRCache(maxsize, choice), maxsize, typed)\n \n-def ttl_cache(maxsize=128, ttl=600, timer=time.monotonic, typed=False):\n+def ttl_cache(maxsize=128, ttl=601, timer=time.monotonic, typed=False):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a Least Recently Used (LRU)"
     },
     {
       "id": 32,
-      "line": 99,
-      "kind": "negate"
+      "line": 91,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -77,5 +77,5 @@\n         return _cache(RRCache(maxsize, choice), maxsize, typed)\n \n-def ttl_cache(maxsize=128, ttl=600, timer=time.monotonic, typed=False):\n+def ttl_cache(maxsize=128, ttl=600, timer=time.monotonic, typed=True):\n     \"\"\"Decorator to wrap a function with a memoizing callable that saves\n     up to `maxsize` results based on a Least Recently Used (LRU)"
     },
     {
       "id": 33,
-      "line": 27,
-      "kind": "negate"
+      "line": 97,
+      "kind": "compare",
+      "diff": "--- original\n+++ mutant\n@@ -83,5 +83,5 @@\n \n     \"\"\"\n-    if maxsize is None:\n+    if maxsize is not None:\n         return _cache(_UnboundTTLCache(ttl, timer), None, typed)\n     elif callable(maxsize):"
     },
     {
       "id": 34,
-      "line": 44,
-      "kind": "return"
+      "line": 98,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -84,5 +84,5 @@\n     \"\"\"\n     if maxsize is None:\n-        return _cache(_UnboundTTLCache(ttl, timer), None, typed)\n+        return None\n     elif callable(maxsize):\n         return _cache(TTLCache(128, ttl, timer), 128, typed)(maxsize)"
     },
     {
       "id": 35,
-      "line": 46,
-      "kind": "return"
+      "line": 99,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -85,5 +85,5 @@\n     if maxsize is None:\n         return _cache(_UnboundTTLCache(ttl, timer), None, typed)\n-    elif callable(maxsize):\n+    elif not callable(maxsize):\n         return _cache(TTLCache(128, ttl, timer), 128, typed)(maxsize)\n     else:"
     },
     {
       "id": 36,
-      "line": 58,
-      "kind": "return"
+      "line": 27,
+      "kind": "negate",
+      "diff": "--- original\n+++ mutant\n@@ -19,5 +19,5 @@\n \n     def decorator(func):\n-        key = keys.typedkey if typed else keys.hashkey\n+        key = keys.typedkey if not typed else keys.hashkey\n         wrapper = cached(cache=cache, key=key, condition=Condition(), info=True)(func)\n         wrapper.cache_parameters = lambda: {'maxsize': maxsize, 'typed': typed}"
     },
     {
       "id": 37,
-      "line": 60,
-      "kind": "return"
+      "line": 44,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -34,5 +34,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(FIFOCache(128), 128, typed)(maxsize)\n+        return None\n     else:\n         return _cache(FIFOCache(maxsize), maxsize, typed)"
     },
     {
       "id": 38,
-      "line": 72,
-      "kind": "return"
+      "line": 46,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -36,5 +36,5 @@\n         return _cache(FIFOCache(128), 128, typed)(maxsize)\n     else:\n-        return _cache(FIFOCache(maxsize), maxsize, typed)\n+        return None\n \n def lfu_cache(maxsize=128, typed=False):"
     },
     {
       "id": 39,
-      "line": 74,
-      "kind": "return"
+      "line": 58,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -47,5 +47,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(LFUCache(128), 128, typed)(maxsize)\n+        return None\n     else:\n         return _cache(LFUCache(maxsize), maxsize, typed)"
     },
     {
       "id": 40,
-      "line": 86,
-      "kind": "return"
+      "line": 60,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -49,5 +49,5 @@\n         return _cache(LFUCache(128), 128, typed)(maxsize)\n     else:\n-        return _cache(LFUCache(maxsize), maxsize, typed)\n+        return None\n \n def lru_cache(maxsize=128, typed=False):"
     },
     {
       "id": 41,
-      "line": 88,
-      "kind": "return"
+      "line": 72,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -60,5 +60,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(LRUCache(128), 128, typed)(maxsize)\n+        return None\n     else:\n         return _cache(LRUCache(maxsize), maxsize, typed)"
     },
     {
       "id": 42,
-      "line": 100,
-      "kind": "return"
+      "line": 74,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -62,5 +62,5 @@\n         return _cache(LRUCache(128), 128, typed)(maxsize)\n     else:\n-        return _cache(LRUCache(maxsize), maxsize, typed)\n+        return None\n \n def rr_cache(maxsize=128, choice=random.choice, typed=False):"
     },
     {
       "id": 43,
-      "line": 102,
-      "kind": "return"
+      "line": 86,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -73,5 +73,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(RRCache(128, choice), 128, typed)(maxsize)\n+        return None\n     else:\n         return _cache(RRCache(maxsize, choice), maxsize, typed)"
     },
     {
       "id": 44,
-      "line": 28,
-      "kind": "const"
+      "line": 88,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -75,5 +75,5 @@\n         return _cache(RRCache(128, choice), 128, typed)(maxsize)\n     else:\n-        return _cache(RRCache(maxsize, choice), maxsize, typed)\n+        return None\n \n def ttl_cache(maxsize=128, ttl=600, timer=time.monotonic, typed=False):"
     },
     {
       "id": 45,
-      "line": 44,
-      "kind": "const"
+      "line": 100,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -86,5 +86,5 @@\n         return _cache(_UnboundTTLCache(ttl, timer), None, typed)\n     elif callable(maxsize):\n-        return _cache(TTLCache(128, ttl, timer), 128, typed)(maxsize)\n+        return None\n     else:\n         return _cache(TTLCache(maxsize, ttl, timer), maxsize, typed)"
     },
     {
       "id": 46,
-      "line": 58,
-      "kind": "const"
+      "line": 102,
+      "kind": "return",
+      "diff": "--- original\n+++ mutant\n@@ -88,3 +88,3 @@\n         return _cache(TTLCache(128, ttl, timer), 128, typed)(maxsize)\n     else:\n-        return _cache(TTLCache(maxsize, ttl, timer), maxsize, typed)\n+        return None"
     },
     {
       "id": 47,
-      "line": 72,
-      "kind": "const"
+      "line": 28,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -20,5 +20,5 @@\n     def decorator(func):\n         key = keys.typedkey if typed else keys.hashkey\n-        wrapper = cached(cache=cache, key=key, condition=Condition(), info=True)(func)\n+        wrapper = cached(cache=cache, key=key, condition=Condition(), info=False)(func)\n         wrapper.cache_parameters = lambda: {'maxsize': maxsize, 'typed': typed}\n         return wrapper"
     },
     {
       "id": 48,
-      "line": 86,
-      "kind": "const"
+      "line": 44,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -34,5 +34,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(FIFOCache(128), 128, typed)(maxsize)\n+        return _cache(FIFOCache(128), 129, typed)(maxsize)\n     else:\n         return _cache(FIFOCache(maxsize), maxsize, typed)"
     },
     {
       "id": 49,
-      "line": 100,
-      "kind": "const"
+      "line": 58,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -47,5 +47,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(LFUCache(128), 128, typed)(maxsize)\n+        return _cache(LFUCache(128), 129, typed)(maxsize)\n     else:\n         return _cache(LFUCache(maxsize), maxsize, typed)"
     },
     {
       "id": 50,
-      "line": 44,
-      "kind": "const"
+      "line": 72,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -60,5 +60,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(LRUCache(128), 128, typed)(maxsize)\n+        return _cache(LRUCache(128), 129, typed)(maxsize)\n     else:\n         return _cache(LRUCache(maxsize), maxsize, typed)"
     },
     {
       "id": 51,
-      "line": 58,
-      "kind": "const"
+      "line": 86,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -73,5 +73,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(RRCache(128, choice), 128, typed)(maxsize)\n+        return _cache(RRCache(128, choice), 129, typed)(maxsize)\n     else:\n         return _cache(RRCache(maxsize, choice), maxsize, typed)"
     },
     {
       "id": 52,
-      "line": 72,
-      "kind": "const"
+      "line": 100,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -86,5 +86,5 @@\n         return _cache(_UnboundTTLCache(ttl, timer), None, typed)\n     elif callable(maxsize):\n-        return _cache(TTLCache(128, ttl, timer), 128, typed)(maxsize)\n+        return _cache(TTLCache(128, ttl, timer), 129, typed)(maxsize)\n     else:\n         return _cache(TTLCache(maxsize, ttl, timer), maxsize, typed)"
     },
     {
       "id": 53,
-      "line": 86,
-      "kind": "const"
+      "line": 44,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -34,5 +34,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(FIFOCache(128), 128, typed)(maxsize)\n+        return _cache(FIFOCache(129), 128, typed)(maxsize)\n     else:\n         return _cache(FIFOCache(maxsize), maxsize, typed)"
     },
     {
       "id": 54,
+      "line": 58,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -47,5 +47,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(LFUCache(128), 128, typed)(maxsize)\n+        return _cache(LFUCache(129), 128, typed)(maxsize)\n     else:\n         return _cache(LFUCache(maxsize), maxsize, typed)"
+    },
+    {
+      "id": 55,
+      "line": 72,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -60,5 +60,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(LRUCache(128), 128, typed)(maxsize)\n+        return _cache(LRUCache(129), 128, typed)(maxsize)\n     else:\n         return _cache(LRUCache(maxsize), maxsize, typed)"
+    },
+    {
+      "id": 56,
+      "line": 86,
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -73,5 +73,5 @@\n         return _cache({}, None, typed)\n     elif callable(maxsize):\n-        return _cache(RRCache(128, choice), 128, typed)(maxsize)\n+        return _cache(RRCache(129, choice), 128, typed)(maxsize)\n     else:\n         return _cache(RRCache(maxsize, choice), maxsize, typed)"
+    },
+    {
+      "id": 57,
       "line": 100,
-      "kind": "const"
+      "kind": "const",
+      "diff": "--- original\n+++ mutant\n@@ -86,5 +86,5 @@\n         return _cache(_UnboundTTLCache(ttl, timer), None, typed)\n     elif callable(maxsize):\n-        return _cache(TTLCache(128, ttl, timer), 128, typed)(maxsize)\n+        return _cache(TTLCache(129, ttl, timer), 128, typed)(maxsize)\n     else:\n         return _cache(TTLCache(maxsize, ttl, timer), maxsize, typed)"
     }
   ],
   "mode": "baseline",
   "rounds": [
     {
       "round": 0,
-      "score": 89.0909090909091,
-      "killed": 49,
+      "score": 89.65517241379311,
+      "killed": 52,
       "survived": 6,
       "accepted": true,
       "note": "baseline",
       "tokens_used": 0,
       "survivors": [
-        7,
-        12,
-        17,
-        22,
-        27,
-        28
+        10,
+        15,
+        20,
+        25,
+        30,
+        31
       ],
       "triaged": []
     },
     {
       "round": 1,
-      "score": 89.0909090909091,
-      "killed": 49,
+      "score": 89.65517241379311,
+      "killed": 52,
       "survived": 6,
       "accepted": false,
       "note": "rejected: no score improvement",
-      "tokens_used": 25570,
+      "tokens_used": 18079,
       "survivors": [
-        7,
-        12,
-        17,
-        22,
-        27,
-        28
+        10,
+        15,
+        20,
+        25,
+        30,
+        31
       ],
       "triaged": []
     },
     {
       "round": 2,
-      "score": 98.18181818181819,
-      "killed": 54,
-      "survived": 1,
-      "accepted": true,
-      "note": "accepted: score improved (1 repaired from real output) (after one repair)",
-      "tokens_used": 20988,
+      "score": 89.65517241379311,
+      "killed": 52,
+      "survived": 6,
+      "accepted": false,
+      "note": "rejected: no score improvement",
+      "tokens_used": 15129,
       "survivors": [
-        28
+        10,
+        15,
+        20,
+        25,
+        30,
+        31
       ],
       "triaged": []
     },
     {
       "round": 3,
-      "score": 98.18181818181819,
-      "killed": 54,
-      "survived": 1,
+      "score": 89.65517241379311,
+      "killed": 52,
+      "survived": 6,
       "accepted": false,
       "note": "rejected: no score improvement",
-      "tokens_used": 16236,
+      "tokens_used": 7061,
       "survivors": [
-        28
-      ],
-      "triaged": []
-    },
-    {
-      "round": 4,
-      "score": 98.18181818181819,
-      "killed": 54,
-      "survived": 1,
-      "accepted": false,
-      "note": "rejected: no score improvement",
-      "tokens_used": 17623,
-      "survivors": [
-        28
-      ],
-      "triaged": []
-    },
-    {
-      "round": 5,
-      "score": 98.18181818181819,
-      "killed": 54,
-      "survived": 1,
-      "accepted": false,
-      "note": "rejected: no score improvement",
-      "tokens_used": 19361,
-      "survivors": [
-        28
+        10,
+        15,
+        20,
+        25,
+        30,
+        31
       ],
       "triaged": []
     }
   ],
   "explanations": {},
+  "attempts": [
+    {
+      "attempt": 1,
+      "final_score": 89.65517241379311,
+      "tokens_used": 55480,
+      "kept": false
+    },
+    {
+      "attempt": 2,
+      "final_score": 89.65517241379311,
+      "tokens_used": 40269,
+      "kept": true
+    },
+    {
+      "attempt": 3,
+      "final_score": 89.65517241379311,
+      "tokens_used": 53790,
+      "kept": false
+    }
+  ],
+  "initial_coverage": 100.0,
+  "final_coverage": 100.0,
+  "trimmed": {},
+  "docs_lookups": [
+    {
+      "name": "ttl_cache",
+      "query": "python cachetools ttl_cache documentation behaviour examples",
+      "urls": [
+        "https://cachetools.readthedocs.io/en/v4.2.4",
+        "https://www.geeksforgeeks.org/python/cachetools-module-in-python",
+        "https://gist.github.com/7a7e758af9ea3de01ae8b3b3abde311f",
+        "https://medium.com/@tubelwj/cachetools-a-python-based-cache-utility-library-21b248fcc571"
+      ]
+    },
+    {
+      "name": "fifo_cache",
+      "query": "python cachetools fifo_cache documentation behaviour examples",
+      "urls": [
+        "https://cachetools.readthedocs.io",
+        "https://medium.com/@tubelwj/cachetools-a-python-based-cache-utility-library-21b248fcc571",
+        "https://towardsdatascience.com/complete-guide-to-caching-in-python-b4e37a4bcebf",
+        "https://bargsten.org/wissen/python-caching-functions"
+      ]
+    },
+    {
+      "name": "lfu_cache",
+      "query": "python cachetools lfu_cache documentation behaviour examples",
+      "urls": [
+        "https://cachetools.readthedocs.io/en/v4.2.4",
+        "https://cachetools.readthedocs.io/en/v5.5.2",
+        "https://cachetools.readthedocs.io",
+        "https://blog.apify.com/python-cache-complete-guide"
+      ]
+    },
+    {
+      "name": "lru_cache",
+      "query": "python cachetools lru_cache documentation behaviour examples",
+      "urls": [
+        "https://cachetools.readthedocs.io/en/v5.5.2",
+        "https://cachetools.readthedocs.io/en/stable",
+        "https://www.geeksforgeeks.org/python/cachetools-module-in-python",
+        "https://github.com/tkem/cachetools"
+      ]
+    }
+  ],
   "models": {
     "fast": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
     "strong": "nvidia/nemotron-3-super-120b-a12b"
