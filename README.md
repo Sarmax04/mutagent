@@ -58,8 +58,12 @@ Even with 100% line coverage, 6 of 58 planted bugs slipped through. The page and
 |---|---|
 | NVIDIA Nemotron (STRONG tier) | `nvidia/nemotron-3-super-120b-a12b`. Writes tests targeting surviving mutants and repairs wrong expectations from real pytest output. |
 | NVIDIA Nemotron (FAST tier) | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`. Explains each surviving bug in one line (`--explain`, used in the recordings); optional triage of likely-equivalent mutants (`--triage`, not used below). |
-| Nebius Token Factory | All inference calls (`src/mutagent/llm.py`). |
+| Nebius Token Factory | All inference calls (`src/mutagent/llm.py`), through the OpenAI-compatible API. |
+| Nebius Token Factory Sandboxes | With `--sandbox`, every pytest run (the project's tests, the model's new tests and one run per planted bug) happens in isolated sandboxes instead of on my machine, with the planted bugs tested in parallel (`src/mutagent/sandbox.py`). All published recordings were made this way. |
+| Tavily | Looks up the real documentation of the functions under test (`--docs`, `src/mutagent/docs.py`). |
 | Web demo hosting | The demo page runs on Render's free tier (Docker). Only the model calls go to Nebius, which the hackathon FAQ allows. |
+
+How Token Factory sped up the work: Nemotron 3 Super and Nano sit behind one key and one OpenAI-compatible endpoint, so switching from a fake model to real calls took minutes, and both model sizes could be used side by side (Super for writing and repairing tests, Nano for cheap one-line explanations). Prices were low enough to record every result as the best of 3 attempts with a full baseline (about 2 million tokens for the final recording). Sandboxes turned the slowest part, running the test suite once per planted bug, into parallel runs: scoring python-slugify's 166 planted bugs no longer takes minutes per round, and model-written code never ran on my laptop.
 
 ## Quick start
 
