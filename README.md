@@ -10,6 +10,8 @@ License: MIT (see `LICENSE`).
 
 **Live demo:** https://mutagent.onrender.com (free hosting: after 15 idle minutes the first visit takes about a minute to wake up).
 
+**Video (3 min):** https://www.youtube.com/watch?v=qPCeRj2NW-U
+
 ## The problem
 
 LLM-generated tests often pass without testing anything. Coverage and "number of tests" are easy to game. Mutation testing asks the real question: if I plant a small bug in the code, does a test fail?
