@@ -67,6 +67,8 @@ How Token Factory sped up the work: Nemotron 3 Super and Nano sit behind one key
 
 ## Quick start
 
+Note: Nebius retires the two Nemotron 3 model IDs used in the recordings on November 9, 2026. The recorded runs are unaffected. For your own runs after that date, set NEBIUS_MODEL_STRONG and NEBIUS_MODEL_FAST in .env to current Nemotron models from the Token Factory catalog; no code change is needed.
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
